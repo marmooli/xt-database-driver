@@ -1,5 +1,5 @@
 import type { XtDataStore } from "../src/db";
-import type { ImportCounts, NormalizedXtUser, SyncRunRecord, SyncStateRecord, SyncStateUpdate, UpsertResult } from "../src/types";
+import type { ImportCounts, NormalizedXtUser, SyncRunRecord, SyncStateRecord, SyncStateUpdate, UpsertResult, UserListSort, XtUserBalance } from "../src/types";
 import type { FetchAffiliateUsersParams, XtAffiliateUsersPage } from "../src/types";
 import type { XtAffiliateUserSource } from "../src/xt-source";
 
@@ -18,6 +18,7 @@ export class FakeSource implements XtAffiliateUserSource {
 
 export class FakeStore implements XtDataStore {
   users = new Map<string, NormalizedXtUser & { firstSeenAt: string; lastSeenAt: string; runId: number }>();
+  balances = new Map<string, XtUserBalance & { lastBalanceSyncAt: string; runId: number }>();
   runs: SyncRunRecord[] = [];
   states = new Map<string, SyncStateRecord>();
   nextRunId = 1;
@@ -84,20 +85,43 @@ export class FakeStore implements XtDataStore {
     return this.users.size;
   }
 
-  async listUsers(input: { limit: number; offset: number }) {
-    return Array.from(this.users.entries())
+  async listUsers(input: { limit: number; offset: number; sort?: UserListSort }) {
+    let rows = Array.from(this.users.entries());
+    if (input.sort === "balance_desc") {
+      rows = rows.sort((a, b) => (this.balances.get(b[0])?.balance ?? -Infinity) - (this.balances.get(a[0])?.balance ?? -Infinity));
+    }
+    if (input.sort === "balance_asc") {
+      rows = rows.sort((a, b) => (this.balances.get(a[0])?.balance ?? Infinity) - (this.balances.get(b[0])?.balance ?? Infinity));
+    }
+    return rows
       .slice(input.offset, input.offset + input.limit)
-      .map(([uid, user]) => ({
-        uid,
-        affiliate_item_id: user.affiliateItemId,
-        role: user.role,
-        registered_at: user.registeredAt,
-        first_seen_at: user.firstSeenAt,
-        last_seen_at: user.lastSeenAt,
-        last_sync_run_id: user.runId,
-        created_at: user.firstSeenAt,
-        updated_at: user.lastSeenAt
-      }));
+      .map(([uid, user]) => {
+        const balance = this.balances.get(uid);
+        return {
+          uid,
+          affiliate_item_id: user.affiliateItemId,
+          role: user.role,
+          registered_at: user.registeredAt,
+          first_seen_at: user.firstSeenAt,
+          last_seen_at: user.lastSeenAt,
+          last_sync_run_id: user.runId,
+          created_at: user.firstSeenAt,
+          updated_at: user.lastSeenAt,
+          balance: balance?.balance ?? null,
+          balance_text: balance?.balanceText ?? null,
+          last_balance_sync_at: balance?.lastBalanceSyncAt ?? null
+        };
+      });
+  }
+
+  async listBalanceSyncCandidates(input: { limit: number }): Promise<string[]> {
+    return Array.from(this.users.keys()).slice(0, input.limit);
+  }
+
+  async upsertUserBalance(balance: XtUserBalance, runId: number, now: string): Promise<UpsertResult> {
+    const existing = this.balances.has(balance.uid);
+    this.balances.set(balance.uid, { ...balance, lastBalanceSyncAt: now, runId });
+    return { inserted: !existing, updated: existing };
   }
 
   async getSyncState(operation: string): Promise<SyncStateRecord | null> {

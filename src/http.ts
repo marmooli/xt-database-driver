@@ -1,8 +1,10 @@
+import { BalanceSyncer } from "./balance-sync";
 import { D1XtDataStore } from "./db";
 import { renderDashboard } from "./dashboard";
 import { UidImporter } from "./importer";
-import { createXtSource, getSourceName } from "./source-factory";
+import { createBalanceSource, createXtSource, getSourceName } from "./source-factory";
 import { UID_SCHEDULED_SYNC_OPERATION } from "./scheduled";
+import type { UserListSort } from "./types";
 
 export async function handleRequest(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
@@ -79,9 +81,25 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
     const store = new D1XtDataStore(env.XT_DB);
     const limit = clampInteger(parseOptionalInteger(url.searchParams.get("limit")), 25, 1, 100);
     const offset = clampInteger(parseOptionalInteger(url.searchParams.get("offset")), 0, 0, 1000000);
-    const users = await store.listUsers({ limit, offset });
+    const sort = parseUserListSort(url.searchParams.get("sort"));
+    const users = await store.listUsers({ limit, offset, sort });
 
-    return json({ users, limit, offset });
+    return json({ users, limit, offset, sort });
+  }
+
+  if (url.pathname === "/admin/balances/sync" && request.method === "POST") {
+    const unauthorized = requireAdminAuthorization(request, env);
+    if (unauthorized) return unauthorized;
+
+    const limit = clampInteger(parseOptionalInteger(url.searchParams.get("limit")), 25, 1, 100);
+    const syncer = new BalanceSyncer(
+      createBalanceSource(env),
+      new D1XtDataStore(env.XT_DB),
+      getSourceName(env)
+    );
+    const result = await syncer.syncChunk(limit);
+
+    return json(result, { status: 202 });
   }
 
   return json({ error: "Not found" }, { status: 404 });
@@ -113,6 +131,10 @@ function parseOptionalInteger(value: string | null): number | undefined {
 function clampInteger(value: number | undefined, fallback: number, min: number, max: number): number {
   if (value === undefined) return fallback;
   return Math.max(min, Math.min(max, value));
+}
+
+function parseUserListSort(value: string | null): UserListSort {
+  return value === "balance_desc" || value === "balance_asc" ? value : "recent";
 }
 
 function json(body: unknown, init: ResponseInit = {}): Response {

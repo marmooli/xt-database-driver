@@ -93,7 +93,10 @@ describe("sync state admin endpoints", () => {
                 last_seen_at: "b",
                 last_sync_run_id: 1,
                 created_at: "a",
-                updated_at: "b"
+                updated_at: "b",
+                balance: 10,
+                balance_text: "10",
+                last_balance_sync_at: "c"
               }]
             };
           }
@@ -117,6 +120,18 @@ describe("sync state admin endpoints", () => {
       limit: 100,
       users: [{ uid: "100" }]
     });
+  });
+
+  it("rejects unauthorized balance sync requests", async () => {
+    const response = await handleRequest(
+      new Request("https://example.com/admin/balances/sync", { method: "POST" }),
+      {
+        ENVIRONMENT: "production",
+        ADMIN_IMPORT_TOKEN: "secret"
+      } as Env
+    );
+
+    expect(response.status).toBe(401);
   });
 
   it("resets scheduled sync state for authorized admins", async () => {

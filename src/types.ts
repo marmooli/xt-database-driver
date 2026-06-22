@@ -83,6 +83,23 @@ export interface XtUserRecord {
   last_sync_run_id: number | null;
   created_at: string;
   updated_at: string;
+  balance: number | null;
+  balance_text: string | null;
+  last_balance_sync_at: string | null;
+}
+
+export type UserListSort = "recent" | "balance_desc" | "balance_asc";
+
+export interface XtUserBalance {
+  uid: string;
+  role: string | null;
+  balance: number;
+  balanceText: string;
+}
+
+export interface BalanceSyncResult extends ImportCounts {
+  runId: number;
+  status: SyncRunStatus;
 }
 
 export interface ImportCounts {

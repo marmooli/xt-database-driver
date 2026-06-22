@@ -117,6 +117,24 @@ curl -X POST "https://<worker-url>/admin/sync/uid/reset" \
   -H "Authorization: Bearer <ADMIN_IMPORT_TOKEN>"
 ```
 
+## Balance Sync
+
+Balance sync stores the latest known current balance per UID in `xt_user_balances`. It is intentionally bounded because `get_user_balance` is a per-user source call.
+
+Run a protected balance sync chunk:
+
+```sh
+curl -X POST "https://<worker-url>/admin/balances/sync?limit=25" \
+  -H "Authorization: Bearer <ADMIN_IMPORT_TOKEN>"
+```
+
+List users sorted by balance:
+
+```sh
+curl "https://<worker-url>/admin/users?sort=balance_desc&limit=25" \
+  -H "Authorization: Bearer <ADMIN_IMPORT_TOKEN>"
+```
+
 ## Current Remote Deployment
 
 - Worker URL: `https://xt-database-driver.hamed-saffarian.workers.dev`

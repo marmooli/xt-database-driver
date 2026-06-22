@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { UidImporter, clampPageLimit } from "../src/importer";
-import { McpHttpXtAffiliateUserSource, normalizeAffiliateUser, parseAffiliateUsersResponse, parseMcpHttpPayload } from "../src/xt-source";
+import { McpHttpXtAffiliateUserSource, normalizeAffiliateUser, parseAffiliateUsersResponse, parseMcpHttpPayload, parseUserBalanceResponse } from "../src/xt-source";
 import { FakeSource, FakeStore } from "./fakes";
 
 describe("UID import", () => {
@@ -133,5 +133,21 @@ describe("UID import", () => {
     expect(clampPageLimit(0)).toBe(100);
     expect(clampPageLimit(50)).toBe(50);
     expect(clampPageLimit(101)).toBe(100);
+  });
+
+  it("parses user balance responses", () => {
+    expect(parseUserBalanceResponse({
+      rc: 0,
+      result: {
+        userId: 5979787691817,
+        role: "DIRECTOR",
+        balance: 3403.8238
+      }
+    })).toEqual({
+      uid: "5979787691817",
+      role: "DIRECTOR",
+      balance: 3403.8238,
+      balanceText: "3403.8238"
+    });
   });
 });

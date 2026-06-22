@@ -63,7 +63,15 @@ const DASHBOARD_HTML = String.raw`<!doctype html>
     button.secondary { color: var(--ink); background: #e9e2d5; }
     button.warn { background: var(--accent-2); }
     button:disabled { opacity: .55; cursor: wait; }
-    .grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-bottom: 16px; }
+    select {
+      border: 1px solid var(--line);
+      background: #fffaf0;
+      color: var(--ink);
+      border-radius: 6px;
+      padding: 10px 11px;
+      min-height: 40px;
+    }
+    .grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 14px; margin-bottom: 16px; }
     .card { border-radius: 8px; padding: 16px; min-height: 112px; }
     .label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .06em; }
     .value { margin-top: 10px; font-size: 26px; font-weight: 760; }
@@ -108,6 +116,7 @@ const DASHBOARD_HTML = String.raw`<!doctype html>
       <div class="card"><div class="label">Latest Run</div><div class="value" id="latestRun">-</div></div>
       <div class="card"><div class="label">Scheduled State</div><div class="value" id="syncState">-</div></div>
       <div class="card"><div class="label">Next Cursor</div><div class="value" id="nextCursor">-</div></div>
+      <div class="card"><div class="label">Balances Shown</div><div class="value" id="balanceRows">-</div></div>
     </section>
 
     <section class="panel">
@@ -119,6 +128,7 @@ const DASHBOARD_HTML = String.raw`<!doctype html>
         <div class="actions">
           <button id="refreshBtn" type="button">Refresh</button>
           <button id="importBtn" class="warn" type="button">Run Chunk</button>
+          <button id="balanceBtn" class="warn" type="button">Sync Balances</button>
           <button id="resetBtn" class="secondary" type="button">Reset Sync</button>
         </div>
       </div>
@@ -126,15 +136,20 @@ const DASHBOARD_HTML = String.raw`<!doctype html>
 
     <section class="panel">
       <div class="toolbar">
-        <strong>Recent UID Rows</strong>
+        <strong>UID Rows</strong>
+        <select id="sortSelect">
+          <option value="recent">Recent</option>
+          <option value="balance_desc">Balance high to low</option>
+          <option value="balance_asc">Balance low to high</option>
+        </select>
         <span class="pill" id="pageInfo">Page 1</span>
       </div>
       <table>
         <thead>
-          <tr><th>UID</th><th>Affiliate ID</th><th>Role</th><th>Last Seen</th><th>Run</th></tr>
+          <tr><th>UID</th><th>Balance</th><th>Affiliate ID</th><th>Role</th><th>Last Seen</th><th>Run</th></tr>
         </thead>
         <tbody id="usersBody">
-          <tr><td colspan="5">No data loaded.</td></tr>
+          <tr><td colspan="6">No data loaded.</td></tr>
         </tbody>
       </table>
       <div class="toolbar" style="margin-top:12px">
@@ -144,9 +159,10 @@ const DASHBOARD_HTML = String.raw`<!doctype html>
     </section>
   </main>
   <script>
-    const state = { token: sessionStorage.getItem("xtAdminToken") || "", offset: 0, limit: 25 };
+    const state = { token: sessionStorage.getItem("xtAdminToken") || "", offset: 0, limit: 25, sort: sessionStorage.getItem("xtUserSort") || "recent" };
     const el = (id) => document.getElementById(id);
     el("tokenInput").value = state.token;
+    el("sortSelect").value = state.sort;
 
     function headers() {
       return state.token ? { authorization: "Bearer " + state.token } : {};
@@ -168,16 +184,17 @@ const DASHBOARD_HTML = String.raw`<!doctype html>
       setMessage("Loading...");
       const [sync, users] = await Promise.all([
         api("/admin/sync/uid"),
-        api("/admin/users?limit=" + state.limit + "&offset=" + state.offset)
+        api("/admin/users?limit=" + state.limit + "&offset=" + state.offset + "&sort=" + state.sort)
       ]);
       el("userCount").textContent = fmt(sync.userCount);
       el("latestRun").textContent = fmt(sync.latestRun?.status);
       el("syncState").textContent = fmt(sync.state?.status);
       el("nextCursor").textContent = fmt(sync.state?.next_cursor);
+      el("balanceRows").textContent = String(users.users.filter((user) => user.balance !== null && user.balance !== undefined).length);
       el("pageInfo").textContent = "Rows " + (state.offset + 1) + "-" + (state.offset + users.users.length);
       el("usersBody").innerHTML = users.users.length
-        ? users.users.map((user) => "<tr><td>" + user.uid + "</td><td>" + fmt(user.affiliate_item_id) + "</td><td>" + fmt(user.role) + "</td><td>" + fmt(user.last_seen_at) + "</td><td>" + fmt(user.last_sync_run_id) + "</td></tr>").join("")
-        : '<tr><td colspan="5">No rows on this page.</td></tr>';
+        ? users.users.map((user) => "<tr><td>" + user.uid + "</td><td>" + fmt(user.balance_text) + "</td><td>" + fmt(user.affiliate_item_id) + "</td><td>" + fmt(user.role) + "</td><td>" + fmt(user.last_seen_at) + "</td><td>" + fmt(user.last_sync_run_id) + "</td></tr>").join("")
+        : '<tr><td colspan="6">No rows on this page.</td></tr>';
       setMessage("Dashboard data loaded.");
     }
     el("authForm").addEventListener("submit", async (event) => {
@@ -195,6 +212,20 @@ const DASHBOARD_HTML = String.raw`<!doctype html>
         state.offset = 0;
         await load();
       } catch (error) { setMessage(error.message, true); }
+    });
+    el("balanceBtn").addEventListener("click", async () => {
+      setMessage("Syncing a bounded balance chunk...");
+      try {
+        await api("/admin/balances/sync?limit=25", { method: "POST" });
+        state.offset = 0;
+        await load();
+      } catch (error) { setMessage(error.message, true); }
+    });
+    el("sortSelect").addEventListener("change", async () => {
+      state.sort = el("sortSelect").value;
+      sessionStorage.setItem("xtUserSort", state.sort);
+      state.offset = 0;
+      try { await load(); } catch (error) { setMessage(error.message, true); }
     });
     el("resetBtn").addEventListener("click", async () => {
       setMessage("Resetting scheduled sync state...");

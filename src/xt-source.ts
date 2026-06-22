@@ -1,6 +1,7 @@
 import type {
   FetchAffiliateUsersParams,
   NormalizedXtUser,
+  XtUserBalance,
   XtAffiliateUsersPage,
   XtAffiliateUsersResponse,
   XtAffiliateUserItem
@@ -8,6 +9,10 @@ import type {
 
 export interface XtAffiliateUserSource {
   fetchAffiliateUsersPage(params: FetchAffiliateUsersParams): Promise<XtAffiliateUsersPage>;
+}
+
+export interface XtUserBalanceSource {
+  fetchUserBalance(uid: string): Promise<XtUserBalance>;
 }
 
 export class XtSourceError extends Error {
@@ -116,6 +121,20 @@ export class McpHttpXtAffiliateUserSource implements XtAffiliateUserSource {
   }
 }
 
+export class McpHttpXtUserBalanceSource implements XtUserBalanceSource {
+  constructor(private readonly env: Pick<Env, "XT_MCP_URL" | "XT_API_TOKEN">) {}
+
+  async fetchUserBalance(uid: string): Promise<XtUserBalance> {
+    const textContent = await callMcpTool(this.env, "get_user_balance", { uid: Number(uid) });
+
+    try {
+      return parseUserBalanceResponse(JSON.parse(textContent));
+    } catch (error) {
+      throw new XtSourceError("XT MCP response text was not valid user balance JSON", error);
+    }
+  }
+}
+
 function toMcpArguments(params: FetchAffiliateUsersParams): Record<string, number | string | undefined> {
   return {
     ...params,
@@ -141,6 +160,64 @@ export function parseAffiliateUsersResponse(payload: unknown): XtAffiliateUsersP
     hasNext: page.hasNext ?? null,
     items: page.items
   };
+}
+
+export function parseUserBalanceResponse(payload: unknown): XtUserBalance {
+  const wrapped = payload as { result?: { userId?: number | string | null; role?: string | null; balance?: number | string | null } | null };
+  const result = wrapped && typeof wrapped === "object" && "result" in wrapped ? wrapped.result : payload as typeof wrapped.result;
+
+  if (!result || typeof result !== "object") {
+    throw new XtSourceError("XT balance response does not contain a result object");
+  }
+
+  const uid = normalizeIdentifier(result.userId);
+  const balanceText = normalizeIdentifier(result.balance);
+  const balance = typeof result.balance === "number" ? result.balance : Number(result.balance);
+  if (!uid || !balanceText || !Number.isFinite(balance)) {
+    throw new XtSourceError("XT balance response does not contain a valid uid and balance");
+  }
+
+  return {
+    uid,
+    role: typeof result.role === "string" && result.role.length > 0 ? result.role : null,
+    balance,
+    balanceText
+  };
+}
+
+async function callMcpTool(env: Pick<Env, "XT_MCP_URL" | "XT_API_TOKEN">, name: string, args: Record<string, unknown>): Promise<string> {
+  const headers = new Headers({
+    accept: "application/json, text/event-stream",
+    "content-type": "application/json"
+  });
+
+  if (env.XT_API_TOKEN) {
+    headers.set("authorization", `Bearer ${env.XT_API_TOKEN}`);
+  }
+
+  const response = await fetch(env.XT_MCP_URL || "https://xt-api.metagitic.com/mcp", {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: crypto.randomUUID(),
+      method: "tools/call",
+      params: { name, arguments: args }
+    })
+  });
+
+  if (!response.ok) {
+    throw new XtSourceError(`XT MCP source returned HTTP ${response.status}`);
+  }
+
+  const payload = parseMcpHttpPayload(await response.text());
+  const content = payload?.result?.content;
+  const textContent = Array.isArray(content) ? content.find((item) => item?.type === "text")?.text : undefined;
+  if (typeof textContent !== "string") {
+    throw new XtSourceError("XT MCP response did not contain text content");
+  }
+
+  return textContent;
 }
 
 export function parseMcpHttpPayload(text: string): { result?: { content?: Array<{ type?: string; text?: string }> } } {

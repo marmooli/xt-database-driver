@@ -1,4 +1,4 @@
-import type { ImportCounts, NormalizedXtUser, SyncRunRecord, SyncStateRecord, SyncStateUpdate, UpsertResult, XtUserRecord } from "./types";
+import type { ImportCounts, NormalizedXtUser, SyncRunRecord, SyncStateRecord, SyncStateUpdate, UpsertResult, UserListSort, XtUserBalance, XtUserRecord } from "./types";
 
 export interface XtDataStore {
   createSyncRun(input: { source: string; operation: string; cursorStart: string | null }): Promise<number>;
@@ -7,7 +7,9 @@ export interface XtDataStore {
   upsertUser(user: NormalizedXtUser, runId: number, now: string): Promise<UpsertResult>;
   getLatestSyncRun(): Promise<SyncRunRecord | null>;
   getUserCount(): Promise<number>;
-  listUsers(input: { limit: number; offset: number }): Promise<XtUserRecord[]>;
+  listUsers(input: { limit: number; offset: number; sort: UserListSort }): Promise<XtUserRecord[]>;
+  listBalanceSyncCandidates(input: { limit: number }): Promise<string[]>;
+  upsertUserBalance(balance: XtUserBalance, runId: number, now: string): Promise<UpsertResult>;
   getSyncState(operation: string): Promise<SyncStateRecord | null>;
   upsertSyncState(input: SyncStateUpdate): Promise<void>;
   resetSyncState(operation: string): Promise<void>;
@@ -123,16 +125,74 @@ export class D1XtDataStore implements XtDataStore {
     return row?.count ?? 0;
   }
 
-  async listUsers(input: { limit: number; offset: number }): Promise<XtUserRecord[]> {
+  async listUsers(input: { limit: number; offset: number; sort: UserListSort }): Promise<XtUserRecord[]> {
+    const orderBy = input.sort === "balance_desc"
+      ? "b.balance IS NULL ASC, b.balance DESC, u.last_seen_at DESC"
+      : input.sort === "balance_asc"
+        ? "b.balance IS NULL ASC, b.balance ASC, u.last_seen_at DESC"
+        : "u.last_seen_at DESC, CAST(u.affiliate_item_id AS INTEGER) DESC";
     const result = await this.db.prepare(
-      `SELECT uid, affiliate_item_id, role, registered_at, first_seen_at,
-              last_seen_at, last_sync_run_id, created_at, updated_at
-       FROM xt_users
-       ORDER BY last_seen_at DESC, CAST(affiliate_item_id AS INTEGER) DESC
+      `SELECT u.uid, u.affiliate_item_id, u.role, u.registered_at, u.first_seen_at,
+              u.last_seen_at, u.last_sync_run_id, u.created_at, u.updated_at,
+              b.balance, b.balance_text, b.last_balance_sync_at
+       FROM xt_users u
+       LEFT JOIN xt_user_balances b ON b.uid = u.uid
+       ORDER BY ${orderBy}
        LIMIT ? OFFSET ?`
     ).bind(input.limit, input.offset).all<XtUserRecord>();
 
     return result.results ?? [];
+  }
+
+  async listBalanceSyncCandidates(input: { limit: number }): Promise<string[]> {
+    const result = await this.db.prepare(
+      `SELECT u.uid
+       FROM xt_users u
+       LEFT JOIN xt_user_balances b ON b.uid = u.uid
+       ORDER BY b.last_balance_sync_at IS NOT NULL ASC, b.last_balance_sync_at ASC, u.last_seen_at DESC
+       LIMIT ?`
+    ).bind(input.limit).all<{ uid: string }>();
+
+    return (result.results ?? []).map((row) => row.uid);
+  }
+
+  async upsertUserBalance(balance: XtUserBalance, runId: number, now: string): Promise<UpsertResult> {
+    const existing = await this.db.prepare("SELECT uid FROM xt_user_balances WHERE uid = ?").bind(balance.uid).first<{ uid: string }>();
+
+    if (!existing) {
+      await this.db.prepare(
+        `INSERT INTO xt_user_balances (
+          uid, role, balance, balance_text, last_balance_sync_at,
+          last_sync_run_id, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      ).bind(
+        balance.uid,
+        balance.role,
+        balance.balance,
+        balance.balanceText,
+        now,
+        runId,
+        now,
+        now
+      ).run();
+      return { inserted: true, updated: false };
+    }
+
+    await this.db.prepare(
+      `UPDATE xt_user_balances
+       SET role = ?, balance = ?, balance_text = ?, last_balance_sync_at = ?,
+           last_sync_run_id = ?, updated_at = ?
+       WHERE uid = ?`
+    ).bind(
+      balance.role,
+      balance.balance,
+      balance.balanceText,
+      now,
+      runId,
+      now,
+      balance.uid
+    ).run();
+    return { inserted: false, updated: true };
   }
 
   async getSyncState(operation: string): Promise<SyncStateRecord | null> {
