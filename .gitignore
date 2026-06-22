@@ -8,3 +8,8 @@ node_modules/
 dist/
 coverage/
 npm-debug.log*
+.agent/
+.claude/
+.codex/
+docs/uid-data-schema.json
+openspec/config.yaml
