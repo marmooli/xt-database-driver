@@ -1,0 +1,22 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "xt-database-driver",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-06-22",
+  "vars": {
+    "ENVIRONMENT": "development",
+    "XT_SOURCE_KIND": "mcp-http",
+    "XT_API_BASE_URL": "https://xt-api.metagitic.com",
+    "XT_AFFILIATE_USERS_PATH": "/affiliate/users",
+    "XT_MCP_URL": "https://xt-api.metagitic.com/mcp",
+    "XT_HTTP_METHOD": "GET"
+  },
+  "d1_databases": [
+    {
+      "binding": "XT_DB",
+      "database_name": "xt-data",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ]
+}

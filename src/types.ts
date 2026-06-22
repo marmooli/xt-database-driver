@@ -1,0 +1,78 @@
+export type SyncRunStatus = "running" | "success" | "failed";
+
+export interface XtAffiliateUserItem {
+  id?: number | string | null;
+  userId?: number | string | null;
+  uid?: number | string | null;
+  role?: string | null;
+  regTime?: number | string | null;
+}
+
+export interface XtAffiliateUsersPage {
+  hasPrev?: boolean | null;
+  hasNext?: boolean | null;
+  items: XtAffiliateUserItem[];
+}
+
+export interface XtAffiliateUsersResponse {
+  rc?: number | null;
+  mc?: string | null;
+  ma?: unknown[];
+  result?: XtAffiliateUsersPage | null;
+}
+
+export interface FetchAffiliateUsersParams {
+  direction?: "NEXT" | "PREV";
+  fromId?: string;
+  startTime?: number;
+  endTime?: number;
+  limit: number;
+}
+
+export interface NormalizedXtUser {
+  uid: string;
+  affiliateItemId: string | null;
+  role: string | null;
+  registeredAt: number | null;
+}
+
+export interface SyncRunRecord {
+  id: number;
+  source: string;
+  operation: string;
+  status: SyncRunStatus;
+  cursor_start: string | null;
+  cursor_end: string | null;
+  started_at: string;
+  finished_at: string | null;
+  processed_count: number;
+  inserted_count: number;
+  updated_count: number;
+  skipped_count: number;
+  error_message: string | null;
+}
+
+export interface ImportCounts {
+  processed: number;
+  inserted: number;
+  updated: number;
+  skipped: number;
+}
+
+export interface ImportOptions {
+  fromId?: string;
+  maxPages?: number;
+  limit?: number;
+}
+
+export interface ImportResult extends ImportCounts {
+  runId: number;
+  status: SyncRunStatus;
+  cursorStart: string | null;
+  cursorEnd: string | null;
+}
+
+export interface UpsertResult {
+  inserted: boolean;
+  updated: boolean;
+}
