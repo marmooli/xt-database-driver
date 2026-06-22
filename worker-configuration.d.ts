@@ -7,6 +7,8 @@ interface Env {
   XT_MCP_URL?: string;
   XT_SOURCE_KIND?: string;
   XT_HTTP_METHOD?: string;
+  UID_SYNC_MAX_PAGES?: string;
+  UID_SYNC_LIMIT?: string;
   XT_API_TOKEN?: string;
   ADMIN_IMPORT_TOKEN?: string;
 }

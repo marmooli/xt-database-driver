@@ -84,6 +84,33 @@ curl "https://<worker-url>/admin/status" \
   -H "Authorization: Bearer <ADMIN_IMPORT_TOKEN>"
 ```
 
+## Scheduled Sync
+
+The Worker has a daily cron trigger configured for `02:00 UTC`.
+
+Each scheduled invocation imports a bounded chunk instead of trying to scan every UID in one Worker execution. The defaults are:
+
+```text
+UID_SYNC_MAX_PAGES=5
+UID_SYNC_LIMIT=100
+```
+
+The scheduled cursor is stored in D1 table `sync_state` under operation `uid-scheduled-sync`. When the source is exhausted, the cursor is cleared so the next scheduled cycle starts again from the newest source page.
+
+Inspect scheduled sync state:
+
+```sh
+curl "https://<worker-url>/admin/sync/uid" \
+  -H "Authorization: Bearer <ADMIN_IMPORT_TOKEN>"
+```
+
+Reset scheduled sync state:
+
+```sh
+curl -X POST "https://<worker-url>/admin/sync/uid/reset" \
+  -H "Authorization: Bearer <ADMIN_IMPORT_TOKEN>"
+```
+
 ## Current Remote Deployment
 
 - Worker URL: `https://xt-database-driver.hamed-saffarian.workers.dev`

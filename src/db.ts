@@ -1,4 +1,4 @@
-import type { ImportCounts, NormalizedXtUser, SyncRunRecord, UpsertResult } from "./types";
+import type { ImportCounts, NormalizedXtUser, SyncRunRecord, SyncStateRecord, SyncStateUpdate, UpsertResult } from "./types";
 
 export interface XtDataStore {
   createSyncRun(input: { source: string; operation: string; cursorStart: string | null }): Promise<number>;
@@ -7,6 +7,9 @@ export interface XtDataStore {
   upsertUser(user: NormalizedXtUser, runId: number, now: string): Promise<UpsertResult>;
   getLatestSyncRun(): Promise<SyncRunRecord | null>;
   getUserCount(): Promise<number>;
+  getSyncState(operation: string): Promise<SyncStateRecord | null>;
+  upsertSyncState(input: SyncStateUpdate): Promise<void>;
+  resetSyncState(operation: string): Promise<void>;
 }
 
 export class D1XtDataStore implements XtDataStore {
@@ -117,5 +120,56 @@ export class D1XtDataStore implements XtDataStore {
   async getUserCount(): Promise<number> {
     const row = await this.db.prepare("SELECT COUNT(*) AS count FROM xt_users").first<{ count: number }>();
     return row?.count ?? 0;
+  }
+
+  async getSyncState(operation: string): Promise<SyncStateRecord | null> {
+    return await this.db.prepare(
+      `SELECT operation, next_cursor, status, last_run_id, last_error,
+              last_started_at, last_finished_at, updated_at
+       FROM sync_state
+       WHERE operation = ?`
+    ).bind(operation).first<SyncStateRecord>();
+  }
+
+  async upsertSyncState(input: SyncStateUpdate): Promise<void> {
+    const now = new Date().toISOString();
+    await this.db.prepare(
+      `INSERT INTO sync_state (
+        operation, next_cursor, status, last_run_id, last_error,
+        last_started_at, last_finished_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(operation) DO UPDATE SET
+        next_cursor = excluded.next_cursor,
+        status = excluded.status,
+        last_run_id = excluded.last_run_id,
+        last_error = excluded.last_error,
+        last_started_at = COALESCE(excluded.last_started_at, sync_state.last_started_at),
+        last_finished_at = COALESCE(excluded.last_finished_at, sync_state.last_finished_at),
+        updated_at = excluded.updated_at`
+    ).bind(
+      input.operation,
+      input.nextCursor,
+      input.status,
+      input.lastRunId,
+      input.lastError,
+      input.lastStartedAt ?? null,
+      input.lastFinishedAt ?? null,
+      now
+    ).run();
+  }
+
+  async resetSyncState(operation: string): Promise<void> {
+    const now = new Date().toISOString();
+    await this.db.prepare(
+      `INSERT INTO sync_state (
+        operation, next_cursor, status, last_run_id, last_error,
+        last_started_at, last_finished_at, updated_at
+      ) VALUES (?, NULL, 'idle', NULL, NULL, NULL, NULL, ?)
+      ON CONFLICT(operation) DO UPDATE SET
+        next_cursor = NULL,
+        status = 'idle',
+        last_error = NULL,
+        updated_at = excluded.updated_at`
+    ).bind(operation, now).run();
   }
 }

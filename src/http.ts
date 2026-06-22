@@ -1,6 +1,7 @@
 import { D1XtDataStore } from "./db";
 import { UidImporter } from "./importer";
-import { HttpXtAffiliateUserSource, McpHttpXtAffiliateUserSource, type XtAffiliateUserSource } from "./xt-source";
+import { createXtSource, getSourceName } from "./source-factory";
+import { UID_SCHEDULED_SYNC_OPERATION } from "./scheduled";
 
 export async function handleRequest(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
@@ -41,19 +42,32 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
     return json({ userCount, latestRun });
   }
 
-  return json({ error: "Not found" }, { status: 404 });
-}
+  if (url.pathname === "/admin/sync/uid" && request.method === "GET") {
+    const unauthorized = requireAdminAuthorization(request, env);
+    if (unauthorized) return unauthorized;
 
-function createXtSource(env: Env): XtAffiliateUserSource {
-  if ((env.XT_SOURCE_KIND || "mcp-http") === "mcp-http") {
-    return new McpHttpXtAffiliateUserSource(env);
+    const store = new D1XtDataStore(env.XT_DB);
+    const [state, latestRun, userCount] = await Promise.all([
+      store.getSyncState(UID_SCHEDULED_SYNC_OPERATION),
+      store.getLatestSyncRun(),
+      store.getUserCount()
+    ]);
+
+    return json({ userCount, latestRun, state });
   }
 
-  return new HttpXtAffiliateUserSource(env);
-}
+  if (url.pathname === "/admin/sync/uid/reset" && request.method === "POST") {
+    const unauthorized = requireAdminAuthorization(request, env);
+    if (unauthorized) return unauthorized;
 
-function getSourceName(env: Env): string {
-  return (env.XT_SOURCE_KIND || "mcp-http") === "mcp-http" ? "xt-mcp-http" : "xt-http-proxy";
+    const store = new D1XtDataStore(env.XT_DB);
+    await store.resetSyncState(UID_SCHEDULED_SYNC_OPERATION);
+    const state = await store.getSyncState(UID_SCHEDULED_SYNC_OPERATION);
+
+    return json({ state });
+  }
+
+  return json({ error: "Not found" }, { status: 404 });
 }
 
 export function requireAdminAuthorization(request: Request, env: Pick<Env, "ADMIN_IMPORT_TOKEN" | "ENVIRONMENT">): Response | null {

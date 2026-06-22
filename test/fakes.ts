@@ -1,5 +1,5 @@
 import type { XtDataStore } from "../src/db";
-import type { ImportCounts, NormalizedXtUser, SyncRunRecord, UpsertResult } from "../src/types";
+import type { ImportCounts, NormalizedXtUser, SyncRunRecord, SyncStateRecord, SyncStateUpdate, UpsertResult } from "../src/types";
 import type { FetchAffiliateUsersParams, XtAffiliateUsersPage } from "../src/types";
 import type { XtAffiliateUserSource } from "../src/xt-source";
 
@@ -19,6 +19,7 @@ export class FakeSource implements XtAffiliateUserSource {
 export class FakeStore implements XtDataStore {
   users = new Map<string, NormalizedXtUser & { firstSeenAt: string; lastSeenAt: string; runId: number }>();
   runs: SyncRunRecord[] = [];
+  states = new Map<string, SyncStateRecord>();
   nextRunId = 1;
 
   async createSyncRun(input: { source: string; operation: string; cursorStart: string | null }): Promise<number> {
@@ -81,6 +82,38 @@ export class FakeStore implements XtDataStore {
 
   async getUserCount(): Promise<number> {
     return this.users.size;
+  }
+
+  async getSyncState(operation: string): Promise<SyncStateRecord | null> {
+    return this.states.get(operation) ?? null;
+  }
+
+  async upsertSyncState(input: SyncStateUpdate): Promise<void> {
+    const existing = this.states.get(input.operation);
+    this.states.set(input.operation, {
+      operation: input.operation,
+      next_cursor: input.nextCursor,
+      status: input.status,
+      last_run_id: input.lastRunId,
+      last_error: input.lastError,
+      last_started_at: input.lastStartedAt ?? existing?.last_started_at ?? null,
+      last_finished_at: input.lastFinishedAt ?? existing?.last_finished_at ?? null,
+      updated_at: new Date().toISOString()
+    });
+  }
+
+  async resetSyncState(operation: string): Promise<void> {
+    const existing = this.states.get(operation);
+    this.states.set(operation, {
+      operation,
+      next_cursor: null,
+      status: "idle",
+      last_run_id: existing?.last_run_id ?? null,
+      last_error: null,
+      last_started_at: existing?.last_started_at ?? null,
+      last_finished_at: existing?.last_finished_at ?? null,
+      updated_at: new Date().toISOString()
+    });
   }
 
   private requireRun(runId: number): SyncRunRecord {

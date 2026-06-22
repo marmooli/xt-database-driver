@@ -52,6 +52,27 @@ export interface SyncRunRecord {
   error_message: string | null;
 }
 
+export interface SyncStateRecord {
+  operation: string;
+  next_cursor: string | null;
+  status: "idle" | SyncRunStatus;
+  last_run_id: number | null;
+  last_error: string | null;
+  last_started_at: string | null;
+  last_finished_at: string | null;
+  updated_at: string;
+}
+
+export interface SyncStateUpdate {
+  operation: string;
+  nextCursor: string | null;
+  status: "idle" | SyncRunStatus;
+  lastRunId: number | null;
+  lastError: string | null;
+  lastStartedAt?: string | null;
+  lastFinishedAt?: string | null;
+}
+
 export interface ImportCounts {
   processed: number;
   inserted: number;
@@ -75,4 +96,11 @@ export interface ImportResult extends ImportCounts {
 export interface UpsertResult {
   inserted: boolean;
   updated: boolean;
+}
+
+export interface ScheduledSyncResult {
+  operation: string;
+  exhausted: boolean;
+  nextCursor: string | null;
+  importResult: ImportResult;
 }
