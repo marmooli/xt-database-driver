@@ -57,10 +57,17 @@ Run a limited UID import locally:
 curl -X POST "http://127.0.0.1:8787/admin/import/uid?maxPages=1&limit=100"
 ```
 
-Run a protected production import:
+Run a protected production limited import:
 
 ```sh
 curl -X POST "https://<worker-url>/admin/import/uid?maxPages=1&limit=100" \
+  -H "Authorization: Bearer <ADMIN_IMPORT_TOKEN>"
+```
+
+For a full production import, run bounded chunks rather than one long request. Use the `cursorEnd` returned by one request as the next request's `fromId` until the response processes fewer records than `maxPages * limit`.
+
+```sh
+curl -X POST "https://<worker-url>/admin/import/uid?fromId=<cursorEnd>&maxPages=5&limit=100" \
   -H "Authorization: Bearer <ADMIN_IMPORT_TOKEN>"
 ```
 
@@ -69,6 +76,20 @@ Inspect import status:
 ```sh
 curl "http://127.0.0.1:8787/admin/status"
 ```
+
+For production status, include the admin token:
+
+```sh
+curl "https://<worker-url>/admin/status" \
+  -H "Authorization: Bearer <ADMIN_IMPORT_TOKEN>"
+```
+
+## Current Remote Deployment
+
+- Worker URL: `https://xt-database-driver.hamed-saffarian.workers.dev`
+- D1 database: `xt-data`
+- D1 database ID: `8015942b-c844-453e-8ba2-9c5b727d1f2b`
+- Initial remote import result: `9345` users in `xt_users`
 
 ## Verification
 

@@ -8,14 +8,15 @@ const DEFAULT_PAGE_LIMIT = 100;
 export class UidImporter {
   constructor(
     private readonly source: XtAffiliateUserSource,
-    private readonly store: XtDataStore
+    private readonly store: XtDataStore,
+    private readonly sourceName = "xt-mcp-http"
   ) {}
 
   async importAll(options: ImportOptions = {}): Promise<ImportResult> {
     const pageLimit = clampPageLimit(options.limit);
     const cursorStart = options.fromId ?? null;
     const runId = await this.store.createSyncRun({
-      source: "xt-http-proxy",
+      source: this.sourceName,
       operation: "uid-import",
       cursorStart
     });

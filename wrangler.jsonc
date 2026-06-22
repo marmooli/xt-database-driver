@@ -4,7 +4,7 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-06-22",
   "vars": {
-    "ENVIRONMENT": "development",
+    "ENVIRONMENT": "production",
     "XT_SOURCE_KIND": "mcp-http",
     "XT_API_BASE_URL": "https://xt-api.metagitic.com",
     "XT_AFFILIATE_USERS_PATH": "/affiliate/users",
@@ -15,7 +15,7 @@
     {
       "binding": "XT_DB",
       "database_name": "xt-data",
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      "database_id": "8015942b-c844-453e-8ba2-9c5b727d1f2b",
       "migrations_dir": "migrations"
     }
   ]

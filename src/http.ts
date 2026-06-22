@@ -15,7 +15,8 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
 
     const importer = new UidImporter(
       createXtSource(env),
-      new D1XtDataStore(env.XT_DB)
+      new D1XtDataStore(env.XT_DB),
+      getSourceName(env)
     );
 
     const result = await importer.importAll({
@@ -49,6 +50,10 @@ function createXtSource(env: Env): XtAffiliateUserSource {
   }
 
   return new HttpXtAffiliateUserSource(env);
+}
+
+function getSourceName(env: Env): string {
+  return (env.XT_SOURCE_KIND || "mcp-http") === "mcp-http" ? "xt-mcp-http" : "xt-http-proxy";
 }
 
 export function requireAdminAuthorization(request: Request, env: Pick<Env, "ADMIN_IMPORT_TOKEN" | "ENVIRONMENT">): Response | null {
