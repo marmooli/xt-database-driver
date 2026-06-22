@@ -73,6 +73,18 @@ export interface SyncStateUpdate {
   lastFinishedAt?: string | null;
 }
 
+export interface XtUserRecord {
+  uid: string;
+  affiliate_item_id: string | null;
+  role: string | null;
+  registered_at: number | null;
+  first_seen_at: string;
+  last_seen_at: string;
+  last_sync_run_id: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface ImportCounts {
   processed: number;
   inserted: number;

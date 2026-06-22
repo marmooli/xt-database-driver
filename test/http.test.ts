@@ -39,6 +39,17 @@ describe("admin authorization", () => {
 });
 
 describe("sync state admin endpoints", () => {
+  it("serves the dashboard page", async () => {
+    const response = await handleRequest(
+      new Request("https://example.com/"),
+      {} as Env
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain("text/html");
+    await expect(response.text()).resolves.toContain("XT Data Dashboard");
+  });
+
   it("rejects unauthorized sync state requests", async () => {
     const response = await handleRequest(
       new Request("https://example.com/admin/sync/uid"),
@@ -49,6 +60,63 @@ describe("sync state admin endpoints", () => {
     );
 
     expect(response.status).toBe(401);
+  });
+
+  it("rejects unauthorized user list requests", async () => {
+    const response = await handleRequest(
+      new Request("https://example.com/admin/users"),
+      {
+        ENVIRONMENT: "production",
+        ADMIN_IMPORT_TOKEN: "secret"
+      } as Env
+    );
+
+    expect(response.status).toBe(401);
+  });
+
+  it("returns bounded user list data for authorized admins", async () => {
+    const db = {
+      prepare(sql: string) {
+        return {
+          bind() {
+            return this;
+          },
+          async all() {
+            expect(sql).toContain("FROM xt_users");
+            return {
+              results: [{
+                uid: "100",
+                affiliate_item_id: "1",
+                role: "DIRECTOR",
+                registered_at: 123,
+                first_seen_at: "a",
+                last_seen_at: "b",
+                last_sync_run_id: 1,
+                created_at: "a",
+                updated_at: "b"
+              }]
+            };
+          }
+        };
+      }
+    } as unknown as D1Database;
+
+    const response = await handleRequest(
+      new Request("https://example.com/admin/users?limit=500&offset=0", {
+        headers: { authorization: "Bearer secret" }
+      }),
+      {
+        XT_DB: db,
+        ENVIRONMENT: "production",
+        ADMIN_IMPORT_TOKEN: "secret"
+      } as Env
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      limit: 100,
+      users: [{ uid: "100" }]
+    });
   });
 
   it("resets scheduled sync state for authorized admins", async () => {

@@ -1,10 +1,15 @@
 import { D1XtDataStore } from "./db";
+import { renderDashboard } from "./dashboard";
 import { UidImporter } from "./importer";
 import { createXtSource, getSourceName } from "./source-factory";
 import { UID_SCHEDULED_SYNC_OPERATION } from "./scheduled";
 
 export async function handleRequest(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
+
+  if (url.pathname === "/" && request.method === "GET") {
+    return renderDashboard();
+  }
 
   if (url.pathname === "/health" && request.method === "GET") {
     return json({ ok: true });
@@ -67,6 +72,18 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
     return json({ state });
   }
 
+  if (url.pathname === "/admin/users" && request.method === "GET") {
+    const unauthorized = requireAdminAuthorization(request, env);
+    if (unauthorized) return unauthorized;
+
+    const store = new D1XtDataStore(env.XT_DB);
+    const limit = clampInteger(parseOptionalInteger(url.searchParams.get("limit")), 25, 1, 100);
+    const offset = clampInteger(parseOptionalInteger(url.searchParams.get("offset")), 0, 0, 1000000);
+    const users = await store.listUsers({ limit, offset });
+
+    return json({ users, limit, offset });
+  }
+
   return json({ error: "Not found" }, { status: 404 });
 }
 
@@ -91,6 +108,11 @@ function parseOptionalInteger(value: string | null): number | undefined {
   if (value === null || value.trim() === "") return undefined;
   const parsed = Number(value);
   return Number.isInteger(parsed) ? parsed : undefined;
+}
+
+function clampInteger(value: number | undefined, fallback: number, min: number, max: number): number {
+  if (value === undefined) return fallback;
+  return Math.max(min, Math.min(max, value));
 }
 
 function json(body: unknown, init: ResponseInit = {}): Response {

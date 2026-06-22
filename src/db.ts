@@ -1,4 +1,4 @@
-import type { ImportCounts, NormalizedXtUser, SyncRunRecord, SyncStateRecord, SyncStateUpdate, UpsertResult } from "./types";
+import type { ImportCounts, NormalizedXtUser, SyncRunRecord, SyncStateRecord, SyncStateUpdate, UpsertResult, XtUserRecord } from "./types";
 
 export interface XtDataStore {
   createSyncRun(input: { source: string; operation: string; cursorStart: string | null }): Promise<number>;
@@ -7,6 +7,7 @@ export interface XtDataStore {
   upsertUser(user: NormalizedXtUser, runId: number, now: string): Promise<UpsertResult>;
   getLatestSyncRun(): Promise<SyncRunRecord | null>;
   getUserCount(): Promise<number>;
+  listUsers(input: { limit: number; offset: number }): Promise<XtUserRecord[]>;
   getSyncState(operation: string): Promise<SyncStateRecord | null>;
   upsertSyncState(input: SyncStateUpdate): Promise<void>;
   resetSyncState(operation: string): Promise<void>;
@@ -120,6 +121,18 @@ export class D1XtDataStore implements XtDataStore {
   async getUserCount(): Promise<number> {
     const row = await this.db.prepare("SELECT COUNT(*) AS count FROM xt_users").first<{ count: number }>();
     return row?.count ?? 0;
+  }
+
+  async listUsers(input: { limit: number; offset: number }): Promise<XtUserRecord[]> {
+    const result = await this.db.prepare(
+      `SELECT uid, affiliate_item_id, role, registered_at, first_seen_at,
+              last_seen_at, last_sync_run_id, created_at, updated_at
+       FROM xt_users
+       ORDER BY last_seen_at DESC, CAST(affiliate_item_id AS INTEGER) DESC
+       LIMIT ? OFFSET ?`
+    ).bind(input.limit, input.offset).all<XtUserRecord>();
+
+    return result.results ?? [];
   }
 
   async getSyncState(operation: string): Promise<SyncStateRecord | null> {

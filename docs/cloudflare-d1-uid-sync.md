@@ -51,6 +51,12 @@ Run the Worker locally:
 npm run dev
 ```
 
+Open the dashboard locally:
+
+```text
+http://127.0.0.1:8787/
+```
+
 Run a limited UID import locally:
 
 ```sh
@@ -114,6 +120,7 @@ curl -X POST "https://<worker-url>/admin/sync/uid/reset" \
 ## Current Remote Deployment
 
 - Worker URL: `https://xt-database-driver.hamed-saffarian.workers.dev`
+- Dashboard URL: `https://xt-database-driver.hamed-saffarian.workers.dev/`
 - D1 database: `xt-data`
 - D1 database ID: `8015942b-c844-453e-8ba2-9c5b727d1f2b`
 - Initial remote import result: `9345` users in `xt_users`

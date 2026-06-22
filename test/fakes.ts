@@ -84,6 +84,22 @@ export class FakeStore implements XtDataStore {
     return this.users.size;
   }
 
+  async listUsers(input: { limit: number; offset: number }) {
+    return Array.from(this.users.entries())
+      .slice(input.offset, input.offset + input.limit)
+      .map(([uid, user]) => ({
+        uid,
+        affiliate_item_id: user.affiliateItemId,
+        role: user.role,
+        registered_at: user.registeredAt,
+        first_seen_at: user.firstSeenAt,
+        last_seen_at: user.lastSeenAt,
+        last_sync_run_id: user.runId,
+        created_at: user.firstSeenAt,
+        updated_at: user.lastSeenAt
+      }));
+  }
+
   async getSyncState(operation: string): Promise<SyncStateRecord | null> {
     return this.states.get(operation) ?? null;
   }
