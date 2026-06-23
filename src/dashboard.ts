@@ -182,6 +182,15 @@ const DASHBOARD_HTML = String.raw`<!doctype html>
       if (value === null || value === undefined || value === "") return "-";
       return String(value);
     }
+    const numberFormatter = new Intl.NumberFormat("en-US", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2
+    });
+    function fmtAmount(value) {
+      if (value === null || value === undefined || value === "") return "-";
+      const number = typeof value === "number" ? value : Number(value);
+      return Number.isFinite(number) ? numberFormatter.format(number) : "-";
+    }
     async function load() {
       setMessage("Loading...");
       const [sync, users] = await Promise.all([
@@ -195,7 +204,7 @@ const DASHBOARD_HTML = String.raw`<!doctype html>
       el("balanceRows").textContent = String(users.users.filter((user) => user.balance !== null && user.balance !== undefined).length);
       el("pageInfo").textContent = "Rows " + (state.offset + 1) + "-" + (state.offset + users.users.length);
       el("usersBody").innerHTML = users.users.length
-        ? users.users.map((user) => "<tr><td>" + user.uid + "</td><td>" + fmt(user.register_invite_code) + "</td><td>" + fmt(user.balance_text) + "</td><td>" + fmt(user.trade_30d_amount_text) + "</td></tr>").join("")
+        ? users.users.map((user) => "<tr><td>" + user.uid + "</td><td>" + fmt(user.register_invite_code) + "</td><td>" + fmtAmount(user.balance) + "</td><td>" + fmtAmount(user.trade_30d_amount) + "</td></tr>").join("")
         : '<tr><td colspan="4">No rows on this page.</td></tr>';
       setMessage("Dashboard data loaded.");
     }
