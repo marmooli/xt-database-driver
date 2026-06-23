@@ -61,7 +61,7 @@ export async function startDailyBalanceSync(input: {
   now?: Date;
 }): Promise<DailyBalanceSyncStartResult> {
   const now = input.now ?? new Date();
-  const syncDate = toUtcDate(now);
+  const syncDate = toGermanyDate(now);
   const state = await input.store.getSyncState(BALANCE_DAILY_SYNC_OPERATION);
 
   if (state?.status === "running" && state.last_started_at?.startsWith(syncDate)) {
@@ -114,6 +114,11 @@ export class DailyBalanceSyncer {
         cursorEnd = uid;
         const balance = await this.source.fetchUserBalance(uid);
         const result = await this.store.upsertUserBalance(balance, runId, now);
+        await this.store.upsertUserBalanceSnapshot({
+          ...balance,
+          snapshotDate: message.syncDate,
+          capturedAt: now
+        }, runId, now);
         if (result.inserted) counts.inserted += 1;
         if (result.updated) counts.updated += 1;
       }
@@ -175,6 +180,18 @@ export class DailyBalanceSyncer {
   }
 }
 
-function toUtcDate(date: Date): string {
-  return date.toISOString().slice(0, 10);
+export function toGermanyDate(date: Date): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Berlin",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).formatToParts(date);
+  const year = parts.find((part) => part.type === "year")?.value;
+  const month = parts.find((part) => part.type === "month")?.value;
+  const day = parts.find((part) => part.type === "day")?.value;
+  if (!year || !month || !day) {
+    throw new Error("Could not format Germany-local date");
+  }
+  return `${year}-${month}-${day}`;
 }

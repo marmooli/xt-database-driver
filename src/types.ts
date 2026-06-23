@@ -97,6 +97,11 @@ export interface XtUserBalance {
   balanceText: string;
 }
 
+export interface XtUserBalanceSnapshot extends XtUserBalance {
+  snapshotDate: string;
+  capturedAt: string;
+}
+
 export interface BalanceSyncResult extends ImportCounts {
   runId: number;
   status: SyncRunStatus;

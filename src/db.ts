@@ -1,4 +1,4 @@
-import type { ImportCounts, NormalizedXtUser, SyncRunRecord, SyncStateRecord, SyncStateUpdate, UpsertResult, UserListSort, XtUserBalance, XtUserRecord } from "./types";
+import type { ImportCounts, NormalizedXtUser, SyncRunRecord, SyncStateRecord, SyncStateUpdate, UpsertResult, UserListSort, XtUserBalance, XtUserBalanceSnapshot, XtUserRecord } from "./types";
 
 export interface XtDataStore {
   createSyncRun(input: { source: string; operation: string; cursorStart: string | null }): Promise<number>;
@@ -11,6 +11,7 @@ export interface XtDataStore {
   listBalanceSyncCandidates(input: { limit: number }): Promise<string[]>;
   listBalanceSyncPage(input: { limit: number; afterUid: string | null }): Promise<string[]>;
   upsertUserBalance(balance: XtUserBalance, runId: number, now: string): Promise<UpsertResult>;
+  upsertUserBalanceSnapshot(snapshot: XtUserBalanceSnapshot, runId: number, now: string): Promise<UpsertResult>;
   getSyncState(operation: string): Promise<SyncStateRecord | null>;
   upsertSyncState(input: SyncStateUpdate): Promise<void>;
   resetSyncState(operation: string): Promise<void>;
@@ -211,6 +212,49 @@ export class D1XtDataStore implements XtDataStore {
       runId,
       now,
       balance.uid
+    ).run();
+    return { inserted: false, updated: true };
+  }
+
+  async upsertUserBalanceSnapshot(snapshot: XtUserBalanceSnapshot, runId: number, now: string): Promise<UpsertResult> {
+    const existing = await this.db.prepare(
+      "SELECT uid FROM xt_user_balance_snapshots WHERE uid = ? AND snapshot_date = ?"
+    ).bind(snapshot.uid, snapshot.snapshotDate).first<{ uid: string }>();
+
+    if (!existing) {
+      await this.db.prepare(
+        `INSERT INTO xt_user_balance_snapshots (
+          uid, snapshot_date, role, balance, balance_text, captured_at,
+          sync_run_id, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).bind(
+        snapshot.uid,
+        snapshot.snapshotDate,
+        snapshot.role,
+        snapshot.balance,
+        snapshot.balanceText,
+        snapshot.capturedAt,
+        runId,
+        now,
+        now
+      ).run();
+      return { inserted: true, updated: false };
+    }
+
+    await this.db.prepare(
+      `UPDATE xt_user_balance_snapshots
+       SET role = ?, balance = ?, balance_text = ?, captured_at = ?,
+           sync_run_id = ?, updated_at = ?
+       WHERE uid = ? AND snapshot_date = ?`
+    ).bind(
+      snapshot.role,
+      snapshot.balance,
+      snapshot.balanceText,
+      snapshot.capturedAt,
+      runId,
+      now,
+      snapshot.uid,
+      snapshot.snapshotDate
     ).run();
     return { inserted: false, updated: true };
   }

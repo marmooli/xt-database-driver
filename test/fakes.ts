@@ -1,5 +1,5 @@
 import type { XtDataStore } from "../src/db";
-import type { ImportCounts, NormalizedXtUser, SyncRunRecord, SyncStateRecord, SyncStateUpdate, UpsertResult, UserListSort, XtUserBalance } from "../src/types";
+import type { ImportCounts, NormalizedXtUser, SyncRunRecord, SyncStateRecord, SyncStateUpdate, UpsertResult, UserListSort, XtUserBalance, XtUserBalanceSnapshot } from "../src/types";
 import type { FetchAffiliateUsersParams, XtAffiliateUsersPage } from "../src/types";
 import type { XtAffiliateUserSource } from "../src/xt-source";
 
@@ -19,6 +19,7 @@ export class FakeSource implements XtAffiliateUserSource {
 export class FakeStore implements XtDataStore {
   users = new Map<string, NormalizedXtUser & { firstSeenAt: string; lastSeenAt: string; runId: number }>();
   balances = new Map<string, XtUserBalance & { lastBalanceSyncAt: string; runId: number }>();
+  snapshots = new Map<string, XtUserBalanceSnapshot & { runId: number }>();
   runs: SyncRunRecord[] = [];
   states = new Map<string, SyncStateRecord>();
   nextRunId = 1;
@@ -128,6 +129,13 @@ export class FakeStore implements XtDataStore {
   async upsertUserBalance(balance: XtUserBalance, runId: number, now: string): Promise<UpsertResult> {
     const existing = this.balances.has(balance.uid);
     this.balances.set(balance.uid, { ...balance, lastBalanceSyncAt: now, runId });
+    return { inserted: !existing, updated: existing };
+  }
+
+  async upsertUserBalanceSnapshot(snapshot: XtUserBalanceSnapshot, runId: number): Promise<UpsertResult> {
+    const key = `${snapshot.uid}:${snapshot.snapshotDate}`;
+    const existing = this.snapshots.has(key);
+    this.snapshots.set(key, { ...snapshot, runId });
     return { inserted: !existing, updated: existing };
   }
 

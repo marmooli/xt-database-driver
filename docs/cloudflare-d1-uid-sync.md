@@ -131,6 +131,8 @@ BALANCE_SYNC_CHUNK_LIMIT=100
 
 Daily progress is stored in D1 table `sync_state` under operation `balance-daily-sync`.
 
+Each daily balance result is also stored in `xt_user_balance_snapshots` with one row per `uid` and Germany-local `snapshot_date` (`Europe/Berlin`). Manual balance sync updates only the latest balance table and does not write daily history. If a UID is not processed by the daily job on a date, no snapshot row is created for that UID/date.
+
 Inspect daily balance sync state:
 
 ```sh

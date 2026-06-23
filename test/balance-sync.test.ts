@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BALANCE_DAILY_SYNC_OPERATION, BalanceSyncer, DailyBalanceSyncer, startDailyBalanceSync, type BalanceSyncQueue } from "../src/balance-sync";
+import { BALANCE_DAILY_SYNC_OPERATION, BalanceSyncer, DailyBalanceSyncer, startDailyBalanceSync, toGermanyDate, type BalanceSyncQueue } from "../src/balance-sync";
 import { FakeStore } from "./fakes";
 
 describe("balance sync", () => {
@@ -18,6 +18,12 @@ describe("balance sync", () => {
 
     expect(result).toMatchObject({ processed: 1, inserted: 1, updated: 0 });
     expect(store.balances.size).toBe(1);
+    expect(store.snapshots.size).toBe(0);
+  });
+
+  it("uses Germany-local dates for daily balance sync", async () => {
+    expect(toGermanyDate(new Date("2026-06-23T21:59:59.000Z"))).toBe("2026-06-23");
+    expect(toGermanyDate(new Date("2026-06-23T22:00:00.000Z"))).toBe("2026-06-24");
   });
 
   it("starts a daily balance sync once per UTC day", async () => {
@@ -55,6 +61,27 @@ describe("balance sync", () => {
     expect(result).toMatchObject({ processed: 2, exhausted: false, cursorEnd: "200" });
     expect(queue.messages).toEqual([{ syncDate: "2026-06-23", afterUid: "200" }]);
     expect((await store.getSyncState(BALANCE_DAILY_SYNC_OPERATION))?.next_cursor).toBe("200");
+    expect(store.snapshots.get("100:2026-06-23")).toMatchObject({ balance: 100, balanceText: "100" });
+    expect(store.snapshots.get("200:2026-06-23")).toMatchObject({ balance: 200, balanceText: "200" });
+  });
+
+  it("updates an existing daily snapshot for the same UID and date", async () => {
+    const store = new FakeStore();
+    await store.upsertUser({ uid: "100", affiliateItemId: "1", role: "DIRECTOR", registeredAt: null }, 1, "now");
+    const queue = new FakeQueue();
+    const source = {
+      calls: 0,
+      async fetchUserBalance(uid: string) {
+        this.calls += 1;
+        return { uid, role: "DIRECTOR", balance: this.calls, balanceText: String(this.calls) };
+      }
+    };
+
+    await new DailyBalanceSyncer(source, store, queue, "test-source").syncChunk({ syncDate: "2026-06-23" }, 100);
+    await new DailyBalanceSyncer(source, store, queue, "test-source").syncChunk({ syncDate: "2026-06-23" }, 100);
+
+    expect(store.snapshots.size).toBe(1);
+    expect(store.snapshots.get("100:2026-06-23")).toMatchObject({ balance: 2, balanceText: "2" });
   });
 
   it("marks the daily balance sync successful when no users remain", async () => {

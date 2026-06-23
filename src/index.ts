@@ -15,7 +15,7 @@ export default {
     ctx.waitUntil(startScheduledDailyBalanceSync(env));
   },
 
-  queue(batch: MessageBatch<BalanceSyncQueueMessage>, env: Env, ctx: ExecutionContext): void {
+  async queue(batch: MessageBatch<BalanceSyncQueueMessage>, env: Env, _ctx: ExecutionContext): Promise<void> {
     const syncer = new DailyBalanceSyncer(
       createBalanceSource(env),
       new D1XtDataStore(env.XT_DB),
@@ -24,7 +24,7 @@ export default {
     );
     const limit = parsePositiveInteger(env.BALANCE_SYNC_CHUNK_LIMIT, 100);
     for (const message of batch.messages) {
-      ctx.waitUntil(syncer.syncChunk(message.body, limit));
+      await syncer.syncChunk(message.body, limit);
     }
   }
 };
