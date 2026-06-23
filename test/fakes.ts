@@ -95,6 +95,9 @@ export class FakeStore implements XtDataStore {
     if (input.sort === "balance_asc") {
       rows = rows.sort((a, b) => (this.balances.get(a[0])?.balance ?? Infinity) - (this.balances.get(b[0])?.balance ?? Infinity));
     }
+    if (input.sort === "trade_30d_desc") {
+      rows = rows.sort((a, b) => this.tradeTotal(b[0]) - this.tradeTotal(a[0]));
+    }
     return rows
       .slice(input.offset, input.offset + input.limit)
       .map(([uid, user]) => {
@@ -111,7 +114,9 @@ export class FakeStore implements XtDataStore {
           updated_at: user.lastSeenAt,
           balance: balance?.balance ?? null,
           balance_text: balance?.balanceText ?? null,
-          last_balance_sync_at: balance?.lastBalanceSyncAt ?? null
+          last_balance_sync_at: balance?.lastBalanceSyncAt ?? null,
+          trade_30d_amount: this.tradeTotal(uid),
+          trade_30d_amount_text: String(this.tradeTotal(uid))
         };
       });
   }
@@ -187,5 +192,11 @@ export class FakeStore implements XtDataStore {
     const run = this.runs.find((candidate) => candidate.id === runId);
     if (!run) throw new Error(`Missing run ${runId}`);
     return run;
+  }
+
+  private tradeTotal(uid: string): number {
+    return Array.from(this.tradeSnapshots.values())
+      .filter((snapshot) => snapshot.uid === uid)
+      .reduce((total, snapshot) => total + snapshot.tradeAmount, 0);
   }
 }

@@ -149,6 +149,15 @@ export function previousGermanyDate(date: Date): string {
   return addDaysToDateString(toGermanyDate(date), -1);
 }
 
+export function completeGermanyDateWindow(date: Date, days: number): { startDate: string; endDate: string } {
+  const boundedDays = Math.max(1, Math.trunc(days));
+  const endDate = previousGermanyDate(date);
+  return {
+    startDate: addDaysToDateString(endDate, 1 - boundedDays),
+    endDate
+  };
+}
+
 export function germanyDateRangeToUtcMs(date: string): { sourceStartMs: number; sourceEndMs: number } {
   return {
     sourceStartMs: germanyLocalMidnightToUtcMs(date),

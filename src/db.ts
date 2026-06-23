@@ -7,7 +7,7 @@ export interface XtDataStore {
   upsertUser(user: NormalizedXtUser, runId: number, now: string): Promise<UpsertResult>;
   getLatestSyncRun(): Promise<SyncRunRecord | null>;
   getUserCount(): Promise<number>;
-  listUsers(input: { limit: number; offset: number; sort: UserListSort }): Promise<XtUserRecord[]>;
+  listUsers(input: { limit: number; offset: number; sort: UserListSort; tradeDateStart: string; tradeDateEnd: string }): Promise<XtUserRecord[]>;
   listBalanceSyncCandidates(input: { limit: number }): Promise<string[]>;
   listBalanceSyncPage(input: { limit: number; afterUid: string | null }): Promise<string[]>;
   listUserUidPage(input: { limit: number; afterUid: string | null }): Promise<string[]>;
@@ -129,21 +129,33 @@ export class D1XtDataStore implements XtDataStore {
     return row?.count ?? 0;
   }
 
-  async listUsers(input: { limit: number; offset: number; sort: UserListSort }): Promise<XtUserRecord[]> {
+  async listUsers(input: { limit: number; offset: number; sort: UserListSort; tradeDateStart: string; tradeDateEnd: string }): Promise<XtUserRecord[]> {
     const orderBy = input.sort === "balance_desc"
       ? "b.balance IS NULL ASC, b.balance DESC, u.last_seen_at DESC"
       : input.sort === "balance_asc"
         ? "b.balance IS NULL ASC, b.balance ASC, u.last_seen_at DESC"
-        : "u.last_seen_at DESC, CAST(u.affiliate_item_id AS INTEGER) DESC";
+        : input.sort === "trade_30d_desc"
+          ? "trade_30d_amount DESC, u.last_seen_at DESC"
+          : "u.last_seen_at DESC, CAST(u.affiliate_item_id AS INTEGER) DESC";
     const result = await this.db.prepare(
       `SELECT u.uid, u.affiliate_item_id, u.role, u.registered_at, u.first_seen_at,
               u.last_seen_at, u.last_sync_run_id, u.created_at, u.updated_at,
-              b.balance, b.balance_text, b.last_balance_sync_at
+              b.balance, b.balance_text, b.last_balance_sync_at,
+              COALESCE(SUM(t.trade_amount), 0) AS trade_30d_amount,
+              CAST(COALESCE(SUM(t.trade_amount), 0) AS TEXT) AS trade_30d_amount_text
        FROM xt_users u
        LEFT JOIN xt_user_balances b ON b.uid = u.uid
+       LEFT JOIN xt_user_trade_daily_snapshots t
+         ON t.uid = u.uid
+        AND t.trade_date >= ?
+        AND t.trade_date <= ?
+       GROUP BY u.uid, u.affiliate_item_id, u.role, u.registered_at,
+                u.first_seen_at, u.last_seen_at, u.last_sync_run_id,
+                u.created_at, u.updated_at, b.balance, b.balance_text,
+                b.last_balance_sync_at
        ORDER BY ${orderBy}
        LIMIT ? OFFSET ?`
-    ).bind(input.limit, input.offset).all<XtUserRecord>();
+    ).bind(input.tradeDateStart, input.tradeDateEnd, input.limit, input.offset).all<XtUserRecord>();
 
     return result.results ?? [];
   }

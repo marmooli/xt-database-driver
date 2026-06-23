@@ -94,7 +94,7 @@ const DASHBOARD_HTML = String.raw`<!doctype html>
       .grid { grid-template-columns: 1fr; }
       .auth, .toolbar, .actions { display: grid; grid-template-columns: 1fr; }
       table { font-size: 13px; }
-      th:nth-child(2), td:nth-child(2), th:nth-child(5), td:nth-child(5) { display: none; }
+      th, td { padding: 10px 8px; }
     }
   </style>
 </head>
@@ -141,15 +141,16 @@ const DASHBOARD_HTML = String.raw`<!doctype html>
           <option value="recent">Recent</option>
           <option value="balance_desc">Balance high to low</option>
           <option value="balance_asc">Balance low to high</option>
+          <option value="trade_30d_desc">30d trade high to low</option>
         </select>
         <span class="pill" id="pageInfo">Page 1</span>
       </div>
       <table>
         <thead>
-          <tr><th>UID</th><th>Balance</th><th>Affiliate ID</th><th>Role</th><th>Last Seen</th><th>Run</th></tr>
+          <tr><th>UID</th><th>Balance</th><th>30d Trade Volume</th></tr>
         </thead>
         <tbody id="usersBody">
-          <tr><td colspan="6">No data loaded.</td></tr>
+          <tr><td colspan="3">No data loaded.</td></tr>
         </tbody>
       </table>
       <div class="toolbar" style="margin-top:12px">
@@ -193,8 +194,8 @@ const DASHBOARD_HTML = String.raw`<!doctype html>
       el("balanceRows").textContent = String(users.users.filter((user) => user.balance !== null && user.balance !== undefined).length);
       el("pageInfo").textContent = "Rows " + (state.offset + 1) + "-" + (state.offset + users.users.length);
       el("usersBody").innerHTML = users.users.length
-        ? users.users.map((user) => "<tr><td>" + user.uid + "</td><td>" + fmt(user.balance_text) + "</td><td>" + fmt(user.affiliate_item_id) + "</td><td>" + fmt(user.role) + "</td><td>" + fmt(user.last_seen_at) + "</td><td>" + fmt(user.last_sync_run_id) + "</td></tr>").join("")
-        : '<tr><td colspan="6">No rows on this page.</td></tr>';
+        ? users.users.map((user) => "<tr><td>" + user.uid + "</td><td>" + fmt(user.balance_text) + "</td><td>" + fmt(user.trade_30d_amount_text) + "</td></tr>").join("")
+        : '<tr><td colspan="3">No rows on this page.</td></tr>';
       setMessage("Dashboard data loaded.");
     }
     el("authForm").addEventListener("submit", async (event) => {

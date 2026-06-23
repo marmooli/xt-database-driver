@@ -4,7 +4,7 @@ import { renderDashboard } from "./dashboard";
 import { UidImporter } from "./importer";
 import { createBalanceSource, createXtSource, getSourceName } from "./source-factory";
 import { UID_SCHEDULED_SYNC_OPERATION } from "./scheduled";
-import { TRADE_DAILY_SYNC_OPERATION, startDailyTradeSync } from "./trade-sync";
+import { TRADE_DAILY_SYNC_OPERATION, completeGermanyDateWindow, startDailyTradeSync } from "./trade-sync";
 import type { UserListSort } from "./types";
 
 export async function handleRequest(request: Request, env: Env): Promise<Response> {
@@ -137,9 +137,16 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
     const limit = clampInteger(parseOptionalInteger(url.searchParams.get("limit")), 25, 1, 100);
     const offset = clampInteger(parseOptionalInteger(url.searchParams.get("offset")), 0, 0, 1000000);
     const sort = parseUserListSort(url.searchParams.get("sort"));
-    const users = await store.listUsers({ limit, offset, sort });
+    const tradeWindow = completeGermanyDateWindow(new Date(), 30);
+    const users = await store.listUsers({
+      limit,
+      offset,
+      sort,
+      tradeDateStart: tradeWindow.startDate,
+      tradeDateEnd: tradeWindow.endDate
+    });
 
-    return json({ users, limit, offset, sort });
+    return json({ users, limit, offset, sort, tradeWindow });
   }
 
   if (url.pathname === "/admin/balances/sync" && request.method === "POST") {
@@ -189,7 +196,7 @@ function clampInteger(value: number | undefined, fallback: number, min: number, 
 }
 
 function parseUserListSort(value: string | null): UserListSort {
-  return value === "balance_desc" || value === "balance_asc" ? value : "recent";
+  return value === "balance_desc" || value === "balance_asc" || value === "trade_30d_desc" ? value : "recent";
 }
 
 function json(body: unknown, init: ResponseInit = {}): Response {

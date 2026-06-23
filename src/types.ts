@@ -86,9 +86,11 @@ export interface XtUserRecord {
   balance: number | null;
   balance_text: string | null;
   last_balance_sync_at: string | null;
+  trade_30d_amount: number;
+  trade_30d_amount_text: string;
 }
 
-export type UserListSort = "recent" | "balance_desc" | "balance_asc";
+export type UserListSort = "recent" | "balance_desc" | "balance_asc" | "trade_30d_desc";
 
 export interface XtUserBalance {
   uid: string;

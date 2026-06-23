@@ -96,7 +96,9 @@ describe("sync state admin endpoints", () => {
                 updated_at: "b",
                 balance: 10,
                 balance_text: "10",
-                last_balance_sync_at: "c"
+                last_balance_sync_at: "c",
+                trade_30d_amount: 123,
+                trade_30d_amount_text: "123"
               }]
             };
           }
@@ -118,7 +120,8 @@ describe("sync state admin endpoints", () => {
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
       limit: 100,
-      users: [{ uid: "100" }]
+      tradeWindow: { startDate: expect.any(String), endDate: expect.any(String) },
+      users: [{ uid: "100", trade_30d_amount: 123 }]
     });
   });
 
