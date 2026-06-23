@@ -130,12 +130,17 @@ export class FakeStore implements XtDataStore {
 
   async listUserInfoSyncCandidates(input: { limit: number }): Promise<string[]> {
     return Array.from(this.users.keys())
+      .filter((uid) => !this.userInfos.has(uid))
       .sort((a, b) => {
         const aSynced = this.userInfos.has(a) ? 1 : 0;
         const bSynced = this.userInfos.has(b) ? 1 : 0;
         return aSynced - bSynced;
       })
       .slice(0, input.limit);
+  }
+
+  async getUserInfoPendingCount(): Promise<number> {
+    return Array.from(this.users.keys()).filter((uid) => !this.userInfos.has(uid)).length;
   }
 
   async listBalanceSyncPage(input: { limit: number; afterUid: string | null }): Promise<string[]> {

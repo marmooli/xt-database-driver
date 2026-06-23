@@ -62,8 +62,8 @@ The dashboard SHALL display stored XT registration invite codes for UID rows whe
 - **THEN** the dashboard SHALL show the referral code in the user table
 
 ### Requirement: Dashboard can start bounded referral-code sync
-The dashboard SHALL expose a bounded admin action for syncing registration invite codes.
+The dashboard SHALL expose an admin action for starting queue-backed registration invite code backfill.
 
 #### Scenario: Admin starts referral-code sync
 - **WHEN** an authorized admin starts the dashboard referral-code sync action
-- **THEN** the system SHALL run a bounded user-info sync request
+- **THEN** the system SHALL start referral-code backfill for users without stored user info

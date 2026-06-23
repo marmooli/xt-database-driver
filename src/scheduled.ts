@@ -3,7 +3,8 @@ import { D1XtDataStore, type XtDataStore } from "./db";
 import { UidImporter } from "./importer";
 import { createXtSource, getSourceName } from "./source-factory";
 import { startDailyTradeSync } from "./trade-sync";
-import type { DailyBalanceSyncStartResult, DailyTradeSyncStartResult, ScheduledSyncResult } from "./types";
+import type { DailyBalanceSyncStartResult, DailyTradeSyncStartResult, ScheduledSyncResult, UserInfoBackfillSyncStartResult } from "./types";
+import { startUserInfoBackfillSync } from "./user-info-sync";
 import type { XtAffiliateUserSource } from "./xt-source";
 
 export const UID_SCHEDULED_SYNC_OPERATION = "uid-scheduled-sync";
@@ -29,6 +30,13 @@ export async function startScheduledDailyTradeSync(env: Env): Promise<DailyTrade
   return startDailyTradeSync({
     store: new D1XtDataStore(env.XT_DB),
     queue: env.TRADE_SYNC_QUEUE
+  });
+}
+
+export async function startScheduledUserInfoBackfillSync(env: Env): Promise<UserInfoBackfillSyncStartResult> {
+  return startUserInfoBackfillSync({
+    store: new D1XtDataStore(env.XT_DB),
+    queue: env.USER_INFO_SYNC_QUEUE
   });
 }
 

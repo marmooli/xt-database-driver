@@ -8,6 +8,7 @@ export interface XtDataStore {
   getLatestSyncRun(): Promise<SyncRunRecord | null>;
   getUserCount(): Promise<number>;
   listUsers(input: { limit: number; offset: number; sort: UserListSort; tradeDateStart: string; tradeDateEnd: string }): Promise<XtUserRecord[]>;
+  getUserInfoPendingCount(): Promise<number>;
   listUserInfoSyncCandidates(input: { limit: number }): Promise<string[]>;
   listBalanceSyncCandidates(input: { limit: number }): Promise<string[]>;
   listBalanceSyncPage(input: { limit: number; afterUid: string | null }): Promise<string[]>;
@@ -168,11 +169,19 @@ export class D1XtDataStore implements XtDataStore {
     const result = await this.db.prepare(
       `SELECT uid
        FROM xt_users
-       ORDER BY last_user_info_sync_at IS NOT NULL ASC, last_user_info_sync_at ASC, last_seen_at DESC
+       WHERE last_user_info_sync_at IS NULL
+       ORDER BY last_seen_at DESC, CAST(uid AS INTEGER) ASC
        LIMIT ?`
     ).bind(input.limit).all<{ uid: string }>();
 
     return (result.results ?? []).map((row) => row.uid);
+  }
+
+  async getUserInfoPendingCount(): Promise<number> {
+    const row = await this.db.prepare(
+      "SELECT COUNT(*) AS count FROM xt_users WHERE last_user_info_sync_at IS NULL"
+    ).first<{ count: number }>();
+    return row?.count ?? 0;
   }
 
   async listBalanceSyncCandidates(input: { limit: number }): Promise<string[]> {

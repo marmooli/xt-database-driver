@@ -233,9 +233,9 @@ const DASHBOARD_HTML = String.raw`<!doctype html>
       } catch (error) { setMessage(error.message, true); }
     });
     el("referralBtn").addEventListener("click", async () => {
-      setMessage("Syncing a bounded referral-code chunk...");
+      setMessage("Starting referral-code backfill...");
       try {
-        await api("/admin/referrals/sync?limit=25", { method: "POST" });
+        await api("/admin/sync/referrals/start", { method: "POST" });
         state.offset = 0;
         await load();
       } catch (error) { setMessage(error.message, true); }

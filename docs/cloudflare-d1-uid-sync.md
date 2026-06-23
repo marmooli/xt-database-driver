@@ -163,16 +163,40 @@ curl "https://<worker-url>/admin/users?sort=balance_desc&limit=25" \
 
 ## Referral Code Sync
 
-Referral code sync stores the XT `registerInviteCode` returned by `get_user_info` on the imported `xt_users` row. It is intentionally bounded because user info is a per-user source call.
+Referral code sync stores the XT `registerInviteCode` returned by `get_user_info` on the imported `xt_users` row.
 
-Run a protected referral-code sync chunk:
+Referral codes are registration-time data and are treated as stable enrichment. The backfill job processes only users whose `last_user_info_sync_at` is still empty. This means existing users are enriched once, and future runs naturally target newly imported users that do not have user info yet.
+
+The backfill runs through the Cloudflare Queue named `xt-user-info-sync`.
+
+The default chunk size is:
+
+```text
+USER_INFO_SYNC_CHUNK_LIMIT=100
+```
+
+Inspect referral-code backfill state:
+
+```sh
+curl "https://<worker-url>/admin/sync/referrals" \
+  -H "Authorization: Bearer <ADMIN_IMPORT_TOKEN>"
+```
+
+Start referral-code backfill:
+
+```sh
+curl -X POST "https://<worker-url>/admin/sync/referrals/start" \
+  -H "Authorization: Bearer <ADMIN_IMPORT_TOKEN>"
+```
+
+Run a protected referral-code sync chunk manually:
 
 ```sh
 curl -X POST "https://<worker-url>/admin/referrals/sync?limit=25" \
   -H "Authorization: Bearer <ADMIN_IMPORT_TOKEN>"
 ```
 
-The dashboard includes a `Sync Referrals` action and displays the stored code in the `Referral Code` column.
+The dashboard includes a `Sync Referrals` action that starts the queue-backed backfill and displays the stored code in the `Referral Code` column. The daily scheduled Worker also starts this backfill when it is not already running, so newly imported users are picked up without re-querying users whose user info has already been checked.
 
 ## Trade Volume Sync
 

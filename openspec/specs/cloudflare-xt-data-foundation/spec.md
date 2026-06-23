@@ -157,6 +157,10 @@ The system SHALL store each imported user's XT registration invite code when it 
 - **WHEN** an authorized user-info sync receives a `registerInviteCode` for an imported UID
 - **THEN** the system SHALL store that referral code and the user-info sync timestamp on the user catalog row
 
+#### Scenario: User info sync marks a user as checked
+- **WHEN** an authorized user-info sync receives user info for an imported UID without a referral code
+- **THEN** the system SHALL store the user-info sync timestamp so the same UID is not repeatedly queried as pending
+
 #### Scenario: User info sync is bounded
 - **WHEN** an authorized admin starts user-info sync with a limit
 - **THEN** the system SHALL process no more than the requested bounded limit
@@ -164,6 +168,25 @@ The system SHALL store each imported user's XT registration invite code when it 
 #### Scenario: User list includes referral code
 - **WHEN** an authorized admin lists imported UID rows
 - **THEN** the system SHALL include each row's stored registration invite code when available
+
+### Requirement: Referral-code backfill processes pending users through a queue
+The system SHALL backfill referral-code user info through bounded queue chunks for imported users that have not yet been checked.
+
+#### Scenario: Admin starts referral-code backfill
+- **WHEN** an authorized admin starts referral-code backfill
+- **THEN** the system SHALL mark referral-code backfill as running and enqueue a first chunk
+
+#### Scenario: More unchecked users remain
+- **WHEN** a referral-code backfill chunk processes the configured chunk limit
+- **THEN** the system SHALL enqueue another referral-code backfill chunk
+
+#### Scenario: No unchecked users remain
+- **WHEN** a referral-code backfill chunk reaches fewer users than the configured chunk limit
+- **THEN** the system SHALL mark referral-code backfill as successful
+
+#### Scenario: Backfill is already running
+- **WHEN** an authorized admin starts referral-code backfill while the backfill state is running
+- **THEN** the system SHALL not enqueue a duplicate first chunk
 
 ### Requirement: Daily balance sync refreshes all imported users
 The system SHALL start a daily balance sync that refreshes balances for all imported UIDs.

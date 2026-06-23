@@ -13,7 +13,8 @@
     "UID_SYNC_MAX_PAGES": "5",
     "UID_SYNC_LIMIT": "100",
     "BALANCE_SYNC_CHUNK_LIMIT": "100",
-    "TRADE_SYNC_CHUNK_LIMIT": "10"
+    "TRADE_SYNC_CHUNK_LIMIT": "10",
+    "USER_INFO_SYNC_CHUNK_LIMIT": "100"
   },
   "triggers": {
     "crons": ["0 2 * * *"]
@@ -27,6 +28,10 @@
       {
         "binding": "TRADE_SYNC_QUEUE",
         "queue": "xt-trade-sync"
+      },
+      {
+        "binding": "USER_INFO_SYNC_QUEUE",
+        "queue": "xt-user-info-sync"
       }
     ],
     "consumers": [
@@ -37,6 +42,11 @@
       },
       {
         "queue": "xt-trade-sync",
+        "max_batch_size": 1,
+        "max_batch_timeout": 30
+      },
+      {
+        "queue": "xt-user-info-sync",
         "max_batch_size": 1,
         "max_batch_timeout": 30
       }

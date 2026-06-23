@@ -6,7 +6,7 @@ import { createBalanceSource, createUserInfoSource, createXtSource, getSourceNam
 import { UID_SCHEDULED_SYNC_OPERATION } from "./scheduled";
 import { TRADE_DAILY_SYNC_OPERATION, completeGermanyDateWindow, startDailyTradeSync } from "./trade-sync";
 import type { UserListSort } from "./types";
-import { UserInfoSyncer } from "./user-info-sync";
+import { USER_INFO_BACKFILL_SYNC_OPERATION, UserInfoSyncer, startUserInfoBackfillSync } from "./user-info-sync";
 
 export async function handleRequest(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
@@ -128,6 +128,37 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
     const state = await store.getSyncState(TRADE_DAILY_SYNC_OPERATION);
 
     return json({ result, state }, { status: 202 });
+  }
+
+  if (url.pathname === "/admin/sync/referrals" && request.method === "GET") {
+    const unauthorized = requireAdminAuthorization(request, env);
+    if (unauthorized) return unauthorized;
+
+    const store = new D1XtDataStore(env.XT_DB);
+    const [state, pendingCount, userCount] = await Promise.all([
+      store.getSyncState(USER_INFO_BACKFILL_SYNC_OPERATION),
+      store.getUserInfoPendingCount(),
+      store.getUserCount()
+    ]);
+
+    return json({ userCount, pendingCount, state });
+  }
+
+  if (url.pathname === "/admin/sync/referrals/start" && request.method === "POST") {
+    const unauthorized = requireAdminAuthorization(request, env);
+    if (unauthorized) return unauthorized;
+
+    const store = new D1XtDataStore(env.XT_DB);
+    const result = await startUserInfoBackfillSync({
+      store,
+      queue: env.USER_INFO_SYNC_QUEUE
+    });
+    const [state, pendingCount] = await Promise.all([
+      store.getSyncState(USER_INFO_BACKFILL_SYNC_OPERATION),
+      store.getUserInfoPendingCount()
+    ]);
+
+    return json({ result, state, pendingCount }, { status: 202 });
   }
 
   if (url.pathname === "/admin/users" && request.method === "GET") {

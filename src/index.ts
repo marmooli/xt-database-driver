@@ -1,10 +1,11 @@
 import { DailyBalanceSyncer } from "./balance-sync";
 import { D1XtDataStore } from "./db";
 import { handleRequest } from "./http";
-import { runScheduledUidSync, startScheduledDailyBalanceSync, startScheduledDailyTradeSync } from "./scheduled";
-import { createBalanceSource, createTradeSource, getSourceName } from "./source-factory";
+import { runScheduledUidSync, startScheduledDailyBalanceSync, startScheduledDailyTradeSync, startScheduledUserInfoBackfillSync } from "./scheduled";
+import { createBalanceSource, createTradeSource, createUserInfoSource, getSourceName } from "./source-factory";
 import { DailyTradeSyncer } from "./trade-sync";
-import type { BalanceSyncQueueMessage, TradeSyncQueueMessage } from "./types";
+import type { BalanceSyncQueueMessage, TradeSyncQueueMessage, UserInfoSyncQueueMessage } from "./types";
+import { UserInfoBackfillSyncer } from "./user-info-sync";
 
 export default {
   fetch(request: Request, env: Env): Promise<Response> {
@@ -15,9 +16,10 @@ export default {
     ctx.waitUntil(runScheduledUidSync(env));
     ctx.waitUntil(startScheduledDailyBalanceSync(env));
     ctx.waitUntil(startScheduledDailyTradeSync(env));
+    ctx.waitUntil(startScheduledUserInfoBackfillSync(env));
   },
 
-  async queue(batch: MessageBatch<BalanceSyncQueueMessage | TradeSyncQueueMessage>, env: Env, _ctx: ExecutionContext): Promise<void> {
+  async queue(batch: MessageBatch<BalanceSyncQueueMessage | TradeSyncQueueMessage | UserInfoSyncQueueMessage>, env: Env, _ctx: ExecutionContext): Promise<void> {
     if (batch.queue === "xt-trade-sync") {
       const syncer = new DailyTradeSyncer(
         createTradeSource(env),
@@ -28,6 +30,20 @@ export default {
       const limit = parsePositiveInteger(env.TRADE_SYNC_CHUNK_LIMIT, 10);
       for (const message of batch.messages) {
         await syncer.syncChunk(message.body as TradeSyncQueueMessage, limit);
+      }
+      return;
+    }
+
+    if (batch.queue === "xt-user-info-sync") {
+      const syncer = new UserInfoBackfillSyncer(
+        createUserInfoSource(env),
+        new D1XtDataStore(env.XT_DB),
+        env.USER_INFO_SYNC_QUEUE,
+        getSourceName(env)
+      );
+      const limit = parsePositiveInteger(env.USER_INFO_SYNC_CHUNK_LIMIT, 100);
+      for (const message of batch.messages) {
+        await syncer.syncChunk(message.body as UserInfoSyncQueueMessage, limit);
       }
       return;
     }

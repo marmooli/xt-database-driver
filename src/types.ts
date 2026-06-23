@@ -131,6 +131,21 @@ export interface UserInfoSyncResult extends ImportCounts {
   status: SyncRunStatus;
 }
 
+export interface UserInfoBackfillSyncStartResult {
+  operation: string;
+  started: boolean;
+  reason: "started" | "already-running";
+}
+
+export interface UserInfoBackfillSyncChunkResult extends UserInfoSyncResult {
+  operation: string;
+  exhausted: boolean;
+}
+
+export interface UserInfoSyncQueueMessage {
+  startedAt: string;
+}
+
 export interface BalanceSyncResult extends ImportCounts {
   runId: number;
   status: SyncRunStatus;
