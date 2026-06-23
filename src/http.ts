@@ -1,4 +1,4 @@
-import { BalanceSyncer } from "./balance-sync";
+import { BALANCE_DAILY_SYNC_OPERATION, BalanceSyncer, startDailyBalanceSync } from "./balance-sync";
 import { D1XtDataStore } from "./db";
 import { renderDashboard } from "./dashboard";
 import { UidImporter } from "./importer";
@@ -72,6 +72,33 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
     const state = await store.getSyncState(UID_SCHEDULED_SYNC_OPERATION);
 
     return json({ state });
+  }
+
+  if (url.pathname === "/admin/sync/balances" && request.method === "GET") {
+    const unauthorized = requireAdminAuthorization(request, env);
+    if (unauthorized) return unauthorized;
+
+    const store = new D1XtDataStore(env.XT_DB);
+    const [state, userCount] = await Promise.all([
+      store.getSyncState(BALANCE_DAILY_SYNC_OPERATION),
+      store.getUserCount()
+    ]);
+
+    return json({ userCount, state });
+  }
+
+  if (url.pathname === "/admin/sync/balances/start" && request.method === "POST") {
+    const unauthorized = requireAdminAuthorization(request, env);
+    if (unauthorized) return unauthorized;
+
+    const store = new D1XtDataStore(env.XT_DB);
+    const result = await startDailyBalanceSync({
+      store,
+      queue: env.BALANCE_SYNC_QUEUE
+    });
+    const state = await store.getSyncState(BALANCE_DAILY_SYNC_OPERATION);
+
+    return json({ result, state }, { status: 202 });
   }
 
   if (url.pathname === "/admin/users" && request.method === "GET") {

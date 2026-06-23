@@ -102,6 +102,26 @@ export interface BalanceSyncResult extends ImportCounts {
   status: SyncRunStatus;
 }
 
+export interface DailyBalanceSyncStartResult {
+  operation: string;
+  syncDate: string;
+  started: boolean;
+  reason: "started" | "already-running" | "already-complete";
+}
+
+export interface DailyBalanceSyncChunkResult extends BalanceSyncResult {
+  operation: string;
+  syncDate: string;
+  cursorStart: string | null;
+  cursorEnd: string | null;
+  exhausted: boolean;
+}
+
+export interface BalanceSyncQueueMessage {
+  syncDate: string;
+  afterUid?: string | null;
+}
+
 export interface ImportCounts {
   processed: number;
   inserted: number;

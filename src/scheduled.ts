@@ -1,7 +1,8 @@
+import { startDailyBalanceSync } from "./balance-sync";
 import { D1XtDataStore, type XtDataStore } from "./db";
 import { UidImporter } from "./importer";
 import { createXtSource, getSourceName } from "./source-factory";
-import type { ScheduledSyncResult } from "./types";
+import type { DailyBalanceSyncStartResult, ScheduledSyncResult } from "./types";
 import type { XtAffiliateUserSource } from "./xt-source";
 
 export const UID_SCHEDULED_SYNC_OPERATION = "uid-scheduled-sync";
@@ -13,6 +14,13 @@ export async function runScheduledUidSync(env: Env): Promise<ScheduledSyncResult
     sourceName: getSourceName(env),
     maxPages: parsePositiveInteger(env.UID_SYNC_MAX_PAGES, 5),
     limit: parsePositiveInteger(env.UID_SYNC_LIMIT, 100)
+  });
+}
+
+export async function startScheduledDailyBalanceSync(env: Env): Promise<DailyBalanceSyncStartResult> {
+  return startDailyBalanceSync({
+    store: new D1XtDataStore(env.XT_DB),
+    queue: env.BALANCE_SYNC_QUEUE
   });
 }
 

@@ -118,6 +118,13 @@ export class FakeStore implements XtDataStore {
     return Array.from(this.users.keys()).slice(0, input.limit);
   }
 
+  async listBalanceSyncPage(input: { limit: number; afterUid: string | null }): Promise<string[]> {
+    return Array.from(this.users.keys())
+      .sort((a, b) => Number(a) - Number(b))
+      .filter((uid) => input.afterUid === null || Number(uid) > Number(input.afterUid))
+      .slice(0, input.limit);
+  }
+
   async upsertUserBalance(balance: XtUserBalance, runId: number, now: string): Promise<UpsertResult> {
     const existing = this.balances.has(balance.uid);
     this.balances.set(balance.uid, { ...balance, lastBalanceSyncAt: now, runId });

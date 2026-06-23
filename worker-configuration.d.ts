@@ -1,5 +1,6 @@
 interface Env {
   XT_DB: D1Database;
+  BALANCE_SYNC_QUEUE: Queue;
   ENVIRONMENT?: string;
   XT_API_BASE_URL?: string;
   XT_AFFILIATE_USERS_PATH?: string;
@@ -9,6 +10,7 @@ interface Env {
   XT_HTTP_METHOD?: string;
   UID_SYNC_MAX_PAGES?: string;
   UID_SYNC_LIMIT?: string;
+  BALANCE_SYNC_CHUNK_LIMIT?: string;
   XT_API_TOKEN?: string;
   ADMIN_IMPORT_TOKEN?: string;
 }

@@ -9,6 +9,7 @@ export interface XtDataStore {
   getUserCount(): Promise<number>;
   listUsers(input: { limit: number; offset: number; sort: UserListSort }): Promise<XtUserRecord[]>;
   listBalanceSyncCandidates(input: { limit: number }): Promise<string[]>;
+  listBalanceSyncPage(input: { limit: number; afterUid: string | null }): Promise<string[]>;
   upsertUserBalance(balance: XtUserBalance, runId: number, now: string): Promise<UpsertResult>;
   getSyncState(operation: string): Promise<SyncStateRecord | null>;
   upsertSyncState(input: SyncStateUpdate): Promise<void>;
@@ -152,6 +153,25 @@ export class D1XtDataStore implements XtDataStore {
        ORDER BY b.last_balance_sync_at IS NOT NULL ASC, b.last_balance_sync_at ASC, u.last_seen_at DESC
        LIMIT ?`
     ).bind(input.limit).all<{ uid: string }>();
+
+    return (result.results ?? []).map((row) => row.uid);
+  }
+
+  async listBalanceSyncPage(input: { limit: number; afterUid: string | null }): Promise<string[]> {
+    const result = input.afterUid
+      ? await this.db.prepare(
+        `SELECT uid
+         FROM xt_users
+         WHERE CAST(uid AS INTEGER) > CAST(? AS INTEGER)
+         ORDER BY CAST(uid AS INTEGER) ASC
+         LIMIT ?`
+      ).bind(input.afterUid, input.limit).all<{ uid: string }>()
+      : await this.db.prepare(
+        `SELECT uid
+         FROM xt_users
+         ORDER BY CAST(uid AS INTEGER) ASC
+         LIMIT ?`
+      ).bind(input.limit).all<{ uid: string }>();
 
     return (result.results ?? []).map((row) => row.uid);
   }

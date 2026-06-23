@@ -121,6 +121,30 @@ curl -X POST "https://<worker-url>/admin/sync/uid/reset" \
 
 Balance sync stores the latest known current balance per UID in `xt_user_balances`. It is intentionally bounded because `get_user_balance` is a per-user source call.
 
+Daily balance sync starts from the existing `02:00 UTC` cron and continues through the Cloudflare Queue named `xt-balance-sync`. Each queue message processes a bounded chunk, then enqueues the next chunk until all imported UIDs have been refreshed for the day.
+
+The defaults are:
+
+```text
+BALANCE_SYNC_CHUNK_LIMIT=100
+```
+
+Daily progress is stored in D1 table `sync_state` under operation `balance-daily-sync`.
+
+Inspect daily balance sync state:
+
+```sh
+curl "https://<worker-url>/admin/sync/balances" \
+  -H "Authorization: Bearer <ADMIN_IMPORT_TOKEN>"
+```
+
+Start the daily balance sync manually:
+
+```sh
+curl -X POST "https://<worker-url>/admin/sync/balances/start" \
+  -H "Authorization: Bearer <ADMIN_IMPORT_TOKEN>"
+```
+
 Run a protected balance sync chunk:
 
 ```sh
