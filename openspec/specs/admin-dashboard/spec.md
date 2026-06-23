@@ -67,3 +67,14 @@ The dashboard SHALL expose an admin action for starting queue-backed registratio
 #### Scenario: Admin starts referral-code sync
 - **WHEN** an authorized admin starts the dashboard referral-code sync action
 - **THEN** the system SHALL start referral-code backfill for users without stored user info
+
+### Requirement: Dashboard exposes a referral codes page
+The system SHALL serve a separate page for listing distinct referral codes and their usage counts.
+
+#### Scenario: Admin opens referral codes page
+- **WHEN** a browser requests `/referrals`
+- **THEN** the system SHALL return an HTML referral code dashboard document
+
+#### Scenario: Referral code data loads successfully
+- **WHEN** an authorized admin loads the referral codes page
+- **THEN** the page SHALL fetch and display distinct referral codes and user counts

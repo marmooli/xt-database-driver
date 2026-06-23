@@ -50,6 +50,17 @@ describe("sync state admin endpoints", () => {
     await expect(response.text()).resolves.toContain("XT Data Dashboard");
   });
 
+  it("serves the referral codes page", async () => {
+    const response = await handleRequest(
+      new Request("https://example.com/referrals"),
+      {} as Env
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain("text/html");
+    await expect(response.text()).resolves.toContain("XT Referral Codes");
+  });
+
   it("rejects unauthorized sync state requests", async () => {
     const response = await handleRequest(
       new Request("https://example.com/admin/sync/uid"),
@@ -149,6 +160,53 @@ describe("sync state admin endpoints", () => {
     );
 
     expect(response.status).toBe(401);
+  });
+
+  it("returns referral code data for authorized admins", async () => {
+    const db = {
+      prepare(sql: string) {
+        return {
+          bind() {
+            return this;
+          },
+          async first() {
+            if (sql.includes("COUNT(DISTINCT register_invite_code)")) {
+              return { count: 2 };
+            }
+            return null;
+          },
+          async all() {
+            expect(sql).toContain("GROUP BY register_invite_code");
+            return {
+              results: [
+                { code: "BOAHBL", users: 2 },
+                { code: "XRDKVB", users: 1 }
+              ]
+            };
+          }
+        };
+      }
+    } as unknown as D1Database;
+
+    const response = await handleRequest(
+      new Request("https://example.com/admin/referrals/codes?limit=25&offset=0", {
+        headers: { authorization: "Bearer secret" }
+      }),
+      {
+        XT_DB: db,
+        ENVIRONMENT: "production",
+        ADMIN_IMPORT_TOKEN: "secret"
+      } as Env
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      totalCodes: 2,
+      codes: [
+        { code: "BOAHBL", users: 2 },
+        { code: "XRDKVB", users: 1 }
+      ]
+    });
   });
 
   it("rejects unauthorized daily balance sync start requests", async () => {

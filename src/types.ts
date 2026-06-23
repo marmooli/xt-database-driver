@@ -92,6 +92,11 @@ export interface XtUserRecord {
   trade_30d_amount_text: string;
 }
 
+export interface ReferralCodeRecord {
+  code: string;
+  users: number;
+}
+
 export type UserListSort = "recent" | "balance_desc" | "balance_asc" | "trade_30d_desc";
 
 export interface XtUserBalance {

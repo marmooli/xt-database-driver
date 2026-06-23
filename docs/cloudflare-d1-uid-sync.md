@@ -198,6 +198,14 @@ curl -X POST "https://<worker-url>/admin/referrals/sync?limit=25" \
 
 The dashboard includes a `Sync Referrals` action that starts the queue-backed backfill and displays the stored code in the `Referral Code` column. The daily scheduled Worker also starts this backfill when it is not already running, so newly imported users are picked up without re-querying users whose user info has already been checked.
 
+Open the referral codes page:
+
+```text
+https://<worker-url>/referrals
+```
+
+That page lists distinct referral codes with their user counts and uses the same admin token protection for data loading.
+
 ## Trade Volume Sync
 
 Daily trade sync stores per-user trade volume in `xt_user_trade_daily_snapshots`. It targets the previous complete Germany-local day (`Europe/Berlin`) so daily charts use complete days rather than partial same-day values.

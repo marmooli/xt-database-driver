@@ -88,6 +88,14 @@ export class FakeStore implements XtDataStore {
     return this.users.size;
   }
 
+  async getReferralCodeCount(): Promise<number> {
+    return new Set(
+      Array.from(this.userInfos.values())
+        .map((info) => info.registerInviteCode)
+        .filter((code): code is string => Boolean(code))
+    ).size;
+  }
+
   async listUsers(input: { limit: number; offset: number; sort?: UserListSort }) {
     let rows = Array.from(this.users.entries());
     if (input.sort === "balance_desc") {
@@ -122,6 +130,19 @@ export class FakeStore implements XtDataStore {
           trade_30d_amount_text: String(this.tradeTotal(uid))
         };
       });
+  }
+
+  async listReferralCodes(input: { limit: number; offset: number }): Promise<Array<{ code: string; users: number }>> {
+    const grouped = new Map<string, number>();
+    for (const info of this.userInfos.values()) {
+      if (!info.registerInviteCode) continue;
+      grouped.set(info.registerInviteCode, (grouped.get(info.registerInviteCode) ?? 0) + 1);
+    }
+
+    return Array.from(grouped.entries())
+      .map(([code, users]) => ({ code, users }))
+      .sort((a, b) => b.users - a.users || a.code.localeCompare(b.code))
+      .slice(input.offset, input.offset + input.limit);
   }
 
   async listBalanceSyncCandidates(input: { limit: number }): Promise<string[]> {

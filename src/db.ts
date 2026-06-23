@@ -1,4 +1,4 @@
-import type { ImportCounts, NormalizedXtUser, SyncRunRecord, SyncStateRecord, SyncStateUpdate, UpsertResult, UserListSort, XtUserBalance, XtUserBalanceSnapshot, XtUserDailyTradeSnapshot, XtUserInfo, XtUserRecord } from "./types";
+import type { ImportCounts, NormalizedXtUser, ReferralCodeRecord, SyncRunRecord, SyncStateRecord, SyncStateUpdate, UpsertResult, UserListSort, XtUserBalance, XtUserBalanceSnapshot, XtUserDailyTradeSnapshot, XtUserInfo, XtUserRecord } from "./types";
 
 export interface XtDataStore {
   createSyncRun(input: { source: string; operation: string; cursorStart: string | null }): Promise<number>;
@@ -8,6 +8,8 @@ export interface XtDataStore {
   getLatestSyncRun(): Promise<SyncRunRecord | null>;
   getUserCount(): Promise<number>;
   listUsers(input: { limit: number; offset: number; sort: UserListSort; tradeDateStart: string; tradeDateEnd: string }): Promise<XtUserRecord[]>;
+  getReferralCodeCount(): Promise<number>;
+  listReferralCodes(input: { limit: number; offset: number }): Promise<ReferralCodeRecord[]>;
   getUserInfoPendingCount(): Promise<number>;
   listUserInfoSyncCandidates(input: { limit: number }): Promise<string[]>;
   listBalanceSyncCandidates(input: { limit: number }): Promise<string[]>;
@@ -130,6 +132,26 @@ export class D1XtDataStore implements XtDataStore {
   async getUserCount(): Promise<number> {
     const row = await this.db.prepare("SELECT COUNT(*) AS count FROM xt_users").first<{ count: number }>();
     return row?.count ?? 0;
+  }
+
+  async getReferralCodeCount(): Promise<number> {
+    const row = await this.db.prepare(
+      "SELECT COUNT(DISTINCT register_invite_code) AS count FROM xt_users WHERE register_invite_code IS NOT NULL AND register_invite_code <> ''"
+    ).first<{ count: number }>();
+    return row?.count ?? 0;
+  }
+
+  async listReferralCodes(input: { limit: number; offset: number }): Promise<ReferralCodeRecord[]> {
+    const result = await this.db.prepare(
+      `SELECT register_invite_code AS code, COUNT(*) AS users
+       FROM xt_users
+       WHERE register_invite_code IS NOT NULL AND register_invite_code <> ''
+       GROUP BY register_invite_code
+       ORDER BY users DESC, code ASC
+       LIMIT ? OFFSET ?`
+    ).bind(input.limit, input.offset).all<ReferralCodeRecord>();
+
+    return result.results ?? [];
   }
 
   async listUsers(input: { limit: number; offset: number; sort: UserListSort; tradeDateStart: string; tradeDateEnd: string }): Promise<XtUserRecord[]> {
