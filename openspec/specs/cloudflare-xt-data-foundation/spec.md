@@ -150,6 +150,21 @@ The system SHALL allow protected user listing to sort by current balance.
 - **WHEN** an authorized admin requests users sorted by balance descending
 - **THEN** the system SHALL return users ordered from highest known balance to lowest known balance
 
+### Requirement: User referral codes are stored as catalog enrichment
+The system SHALL store each imported user's XT registration invite code when it is available from user-info enrichment.
+
+#### Scenario: User info sync stores a referral code
+- **WHEN** an authorized user-info sync receives a `registerInviteCode` for an imported UID
+- **THEN** the system SHALL store that referral code and the user-info sync timestamp on the user catalog row
+
+#### Scenario: User info sync is bounded
+- **WHEN** an authorized admin starts user-info sync with a limit
+- **THEN** the system SHALL process no more than the requested bounded limit
+
+#### Scenario: User list includes referral code
+- **WHEN** an authorized admin lists imported UID rows
+- **THEN** the system SHALL include each row's stored registration invite code when available
+
 ### Requirement: Daily balance sync refreshes all imported users
 The system SHALL start a daily balance sync that refreshes balances for all imported UIDs.
 

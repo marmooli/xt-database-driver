@@ -2,10 +2,11 @@ import { BALANCE_DAILY_SYNC_OPERATION, BalanceSyncer, startDailyBalanceSync } fr
 import { D1XtDataStore } from "./db";
 import { renderDashboard } from "./dashboard";
 import { UidImporter } from "./importer";
-import { createBalanceSource, createXtSource, getSourceName } from "./source-factory";
+import { createBalanceSource, createUserInfoSource, createXtSource, getSourceName } from "./source-factory";
 import { UID_SCHEDULED_SYNC_OPERATION } from "./scheduled";
 import { TRADE_DAILY_SYNC_OPERATION, completeGermanyDateWindow, startDailyTradeSync } from "./trade-sync";
 import type { UserListSort } from "./types";
+import { UserInfoSyncer } from "./user-info-sync";
 
 export async function handleRequest(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
@@ -156,6 +157,21 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
     const limit = clampInteger(parseOptionalInteger(url.searchParams.get("limit")), 25, 1, 100);
     const syncer = new BalanceSyncer(
       createBalanceSource(env),
+      new D1XtDataStore(env.XT_DB),
+      getSourceName(env)
+    );
+    const result = await syncer.syncChunk(limit);
+
+    return json(result, { status: 202 });
+  }
+
+  if (url.pathname === "/admin/referrals/sync" && request.method === "POST") {
+    const unauthorized = requireAdminAuthorization(request, env);
+    if (unauthorized) return unauthorized;
+
+    const limit = clampInteger(parseOptionalInteger(url.searchParams.get("limit")), 25, 1, 100);
+    const syncer = new UserInfoSyncer(
+      createUserInfoSource(env),
       new D1XtDataStore(env.XT_DB),
       getSourceName(env)
     );

@@ -77,6 +77,8 @@ export interface XtUserRecord {
   uid: string;
   affiliate_item_id: string | null;
   role: string | null;
+  register_invite_code: string | null;
+  last_user_info_sync_at: string | null;
   registered_at: number | null;
   first_seen_at: string;
   last_seen_at: string;
@@ -117,6 +119,16 @@ export interface XtUserDailyTradeSnapshot extends XtUserDailyTrade {
   sourceStartMs: number;
   sourceEndMs: number;
   capturedAt: string;
+}
+
+export interface XtUserInfo {
+  uid: string;
+  registerInviteCode: string | null;
+}
+
+export interface UserInfoSyncResult extends ImportCounts {
+  runId: number;
+  status: SyncRunStatus;
 }
 
 export interface BalanceSyncResult extends ImportCounts {

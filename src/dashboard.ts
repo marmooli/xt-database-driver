@@ -129,6 +129,7 @@ const DASHBOARD_HTML = String.raw`<!doctype html>
           <button id="refreshBtn" type="button">Refresh</button>
           <button id="importBtn" class="warn" type="button">Run Chunk</button>
           <button id="balanceBtn" class="warn" type="button">Sync Balances</button>
+          <button id="referralBtn" class="warn" type="button">Sync Referrals</button>
           <button id="resetBtn" class="secondary" type="button">Reset Sync</button>
         </div>
       </div>
@@ -147,10 +148,10 @@ const DASHBOARD_HTML = String.raw`<!doctype html>
       </div>
       <table>
         <thead>
-          <tr><th>UID</th><th>Balance</th><th>30d Trade Volume</th></tr>
+          <tr><th>UID</th><th>Referral Code</th><th>Balance</th><th>30d Trade Volume</th></tr>
         </thead>
         <tbody id="usersBody">
-          <tr><td colspan="3">No data loaded.</td></tr>
+          <tr><td colspan="4">No data loaded.</td></tr>
         </tbody>
       </table>
       <div class="toolbar" style="margin-top:12px">
@@ -194,8 +195,8 @@ const DASHBOARD_HTML = String.raw`<!doctype html>
       el("balanceRows").textContent = String(users.users.filter((user) => user.balance !== null && user.balance !== undefined).length);
       el("pageInfo").textContent = "Rows " + (state.offset + 1) + "-" + (state.offset + users.users.length);
       el("usersBody").innerHTML = users.users.length
-        ? users.users.map((user) => "<tr><td>" + user.uid + "</td><td>" + fmt(user.balance_text) + "</td><td>" + fmt(user.trade_30d_amount_text) + "</td></tr>").join("")
-        : '<tr><td colspan="3">No rows on this page.</td></tr>';
+        ? users.users.map((user) => "<tr><td>" + user.uid + "</td><td>" + fmt(user.register_invite_code) + "</td><td>" + fmt(user.balance_text) + "</td><td>" + fmt(user.trade_30d_amount_text) + "</td></tr>").join("")
+        : '<tr><td colspan="4">No rows on this page.</td></tr>';
       setMessage("Dashboard data loaded.");
     }
     el("authForm").addEventListener("submit", async (event) => {
@@ -218,6 +219,14 @@ const DASHBOARD_HTML = String.raw`<!doctype html>
       setMessage("Syncing a bounded balance chunk...");
       try {
         await api("/admin/balances/sync?limit=25", { method: "POST" });
+        state.offset = 0;
+        await load();
+      } catch (error) { setMessage(error.message, true); }
+    });
+    el("referralBtn").addEventListener("click", async () => {
+      setMessage("Syncing a bounded referral-code chunk...");
+      try {
+        await api("/admin/referrals/sync?limit=25", { method: "POST" });
         state.offset = 0;
         await load();
       } catch (error) { setMessage(error.message, true); }

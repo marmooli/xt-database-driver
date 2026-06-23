@@ -53,3 +53,17 @@ The dashboard SHALL allow admins to sort user rows by balance.
 #### Scenario: Admin selects balance sort
 - **WHEN** an admin selects balance descending or ascending
 - **THEN** the dashboard SHALL reload user rows with the selected balance sort
+
+### Requirement: Dashboard displays referral codes
+The dashboard SHALL display stored XT registration invite codes for UID rows when available.
+
+#### Scenario: Referral code data is available
+- **WHEN** dashboard user rows include `register_invite_code`
+- **THEN** the dashboard SHALL show the referral code in the user table
+
+### Requirement: Dashboard can start bounded referral-code sync
+The dashboard SHALL expose a bounded admin action for syncing registration invite codes.
+
+#### Scenario: Admin starts referral-code sync
+- **WHEN** an authorized admin starts the dashboard referral-code sync action
+- **THEN** the system SHALL run a bounded user-info sync request

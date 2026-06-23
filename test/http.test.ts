@@ -88,6 +88,8 @@ describe("sync state admin endpoints", () => {
                 uid: "100",
                 affiliate_item_id: "1",
                 role: "DIRECTOR",
+                register_invite_code: "BOAHBL",
+                last_user_info_sync_at: "d",
                 registered_at: 123,
                 first_seen_at: "a",
                 last_seen_at: "b",
@@ -128,6 +130,18 @@ describe("sync state admin endpoints", () => {
   it("rejects unauthorized balance sync requests", async () => {
     const response = await handleRequest(
       new Request("https://example.com/admin/balances/sync", { method: "POST" }),
+      {
+        ENVIRONMENT: "production",
+        ADMIN_IMPORT_TOKEN: "secret"
+      } as Env
+    );
+
+    expect(response.status).toBe(401);
+  });
+
+  it("rejects unauthorized referral sync requests", async () => {
+    const response = await handleRequest(
+      new Request("https://example.com/admin/referrals/sync", { method: "POST" }),
       {
         ENVIRONMENT: "production",
         ADMIN_IMPORT_TOKEN: "secret"

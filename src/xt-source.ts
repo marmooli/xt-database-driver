@@ -5,7 +5,8 @@ import type {
   XtUserDailyTrade,
   XtAffiliateUsersPage,
   XtAffiliateUsersResponse,
-  XtAffiliateUserItem
+  XtAffiliateUserItem,
+  XtUserInfo
 } from "./types";
 
 export interface XtAffiliateUserSource {
@@ -18,6 +19,10 @@ export interface XtUserBalanceSource {
 
 export interface XtUserTradeSource {
   fetchUserDailyTrade(input: { uid: string; sourceStartMs: number; sourceEndMs: number }): Promise<XtUserDailyTrade>;
+}
+
+export interface XtUserInfoSource {
+  fetchUserInfo(uid: string): Promise<XtUserInfo>;
 }
 
 export class XtSourceError extends Error {
@@ -158,6 +163,20 @@ export class McpHttpXtUserTradeSource implements XtUserTradeSource {
   }
 }
 
+export class McpHttpXtUserInfoSource implements XtUserInfoSource {
+  constructor(private readonly env: Pick<Env, "XT_MCP_URL" | "XT_API_TOKEN">) {}
+
+  async fetchUserInfo(uid: string): Promise<XtUserInfo> {
+    const textContent = await callMcpTool(this.env, "get_user_info", { uid: Number(uid) });
+
+    try {
+      return parseUserInfoResponse(JSON.parse(textContent));
+    } catch (error) {
+      throw new XtSourceError("XT MCP response text was not valid user info JSON", error);
+    }
+  }
+}
+
 function toMcpArguments(params: FetchAffiliateUsersParams): Record<string, number | string | undefined> {
   return {
     ...params,
@@ -236,6 +255,31 @@ export function parseUserDailyTradeResponse(payload: unknown): XtUserDailyTrade 
     trade: result.trade === true,
     tradeAmount,
     tradeAmountText
+  };
+}
+
+export function parseUserInfoResponse(payload: unknown): XtUserInfo {
+  const wrapped = payload as {
+    result?: {
+      uid?: number | string | null;
+      userId?: number | string | null;
+      registerInviteCode?: number | string | null;
+    } | null;
+  };
+  const result = wrapped && typeof wrapped === "object" && "result" in wrapped ? wrapped.result : payload as typeof wrapped.result;
+
+  if (!result || typeof result !== "object") {
+    throw new XtSourceError("XT user info response does not contain a result object");
+  }
+
+  const uid = normalizeIdentifier(result.uid ?? result.userId);
+  if (!uid) {
+    throw new XtSourceError("XT user info response does not contain a valid uid");
+  }
+
+  return {
+    uid,
+    registerInviteCode: normalizeIdentifier(result.registerInviteCode)
   };
 }
 

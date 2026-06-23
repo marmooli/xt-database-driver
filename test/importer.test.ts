@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { UidImporter, clampPageLimit } from "../src/importer";
-import { McpHttpXtAffiliateUserSource, normalizeAffiliateUser, parseAffiliateUsersResponse, parseMcpHttpPayload, parseUserBalanceResponse, parseUserDailyTradeResponse } from "../src/xt-source";
+import { McpHttpXtAffiliateUserSource, normalizeAffiliateUser, parseAffiliateUsersResponse, parseMcpHttpPayload, parseUserBalanceResponse, parseUserDailyTradeResponse, parseUserInfoResponse } from "../src/xt-source";
 import { FakeSource, FakeStore } from "./fakes";
 
 describe("UID import", () => {
@@ -166,6 +166,19 @@ describe("UID import", () => {
       trade: true,
       tradeAmount: 1885244.91821,
       tradeAmountText: "1885244.91821000"
+    });
+  });
+
+  it("parses user info referral codes", () => {
+    expect(parseUserInfoResponse({
+      rc: 0,
+      result: {
+        uid: 6636211405916,
+        registerInviteCode: "BOAHBL"
+      }
+    })).toEqual({
+      uid: "6636211405916",
+      registerInviteCode: "BOAHBL"
     });
   });
 });

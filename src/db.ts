@@ -1,4 +1,4 @@
-import type { ImportCounts, NormalizedXtUser, SyncRunRecord, SyncStateRecord, SyncStateUpdate, UpsertResult, UserListSort, XtUserBalance, XtUserBalanceSnapshot, XtUserDailyTradeSnapshot, XtUserRecord } from "./types";
+import type { ImportCounts, NormalizedXtUser, SyncRunRecord, SyncStateRecord, SyncStateUpdate, UpsertResult, UserListSort, XtUserBalance, XtUserBalanceSnapshot, XtUserDailyTradeSnapshot, XtUserInfo, XtUserRecord } from "./types";
 
 export interface XtDataStore {
   createSyncRun(input: { source: string; operation: string; cursorStart: string | null }): Promise<number>;
@@ -8,9 +8,11 @@ export interface XtDataStore {
   getLatestSyncRun(): Promise<SyncRunRecord | null>;
   getUserCount(): Promise<number>;
   listUsers(input: { limit: number; offset: number; sort: UserListSort; tradeDateStart: string; tradeDateEnd: string }): Promise<XtUserRecord[]>;
+  listUserInfoSyncCandidates(input: { limit: number }): Promise<string[]>;
   listBalanceSyncCandidates(input: { limit: number }): Promise<string[]>;
   listBalanceSyncPage(input: { limit: number; afterUid: string | null }): Promise<string[]>;
   listUserUidPage(input: { limit: number; afterUid: string | null }): Promise<string[]>;
+  upsertUserInfo(info: XtUserInfo, runId: number, now: string): Promise<UpsertResult>;
   upsertUserBalance(balance: XtUserBalance, runId: number, now: string): Promise<UpsertResult>;
   upsertUserBalanceSnapshot(snapshot: XtUserBalanceSnapshot, runId: number, now: string): Promise<UpsertResult>;
   upsertUserDailyTradeSnapshot(snapshot: XtUserDailyTradeSnapshot, runId: number, now: string): Promise<UpsertResult>;
@@ -139,7 +141,8 @@ export class D1XtDataStore implements XtDataStore {
           : "u.last_seen_at DESC, CAST(u.affiliate_item_id AS INTEGER) DESC";
     const result = await this.db.prepare(
       `SELECT u.uid, u.affiliate_item_id, u.role, u.registered_at, u.first_seen_at,
-              u.last_seen_at, u.last_sync_run_id, u.created_at, u.updated_at,
+              u.register_invite_code, u.last_user_info_sync_at, u.last_seen_at,
+              u.last_sync_run_id, u.created_at, u.updated_at,
               b.balance, b.balance_text, b.last_balance_sync_at,
               COALESCE(SUM(t.trade_amount), 0) AS trade_30d_amount,
               CAST(COALESCE(SUM(t.trade_amount), 0) AS TEXT) AS trade_30d_amount_text
@@ -150,6 +153,7 @@ export class D1XtDataStore implements XtDataStore {
         AND t.trade_date >= ?
         AND t.trade_date <= ?
        GROUP BY u.uid, u.affiliate_item_id, u.role, u.registered_at,
+                u.register_invite_code, u.last_user_info_sync_at,
                 u.first_seen_at, u.last_seen_at, u.last_sync_run_id,
                 u.created_at, u.updated_at, b.balance, b.balance_text,
                 b.last_balance_sync_at
@@ -158,6 +162,17 @@ export class D1XtDataStore implements XtDataStore {
     ).bind(input.tradeDateStart, input.tradeDateEnd, input.limit, input.offset).all<XtUserRecord>();
 
     return result.results ?? [];
+  }
+
+  async listUserInfoSyncCandidates(input: { limit: number }): Promise<string[]> {
+    const result = await this.db.prepare(
+      `SELECT uid
+       FROM xt_users
+       ORDER BY last_user_info_sync_at IS NOT NULL ASC, last_user_info_sync_at ASC, last_seen_at DESC
+       LIMIT ?`
+    ).bind(input.limit).all<{ uid: string }>();
+
+    return (result.results ?? []).map((row) => row.uid);
   }
 
   async listBalanceSyncCandidates(input: { limit: number }): Promise<string[]> {
@@ -193,6 +208,26 @@ export class D1XtDataStore implements XtDataStore {
       ).bind(input.limit).all<{ uid: string }>();
 
     return (result.results ?? []).map((row) => row.uid);
+  }
+
+  async upsertUserInfo(info: XtUserInfo, _runId: number, now: string): Promise<UpsertResult> {
+    const existing = await this.db.prepare("SELECT uid FROM xt_users WHERE uid = ?").bind(info.uid).first<{ uid: string }>();
+    if (!existing) {
+      return { inserted: false, updated: false };
+    }
+
+    await this.db.prepare(
+      `UPDATE xt_users
+       SET register_invite_code = ?, last_user_info_sync_at = ?, updated_at = ?
+       WHERE uid = ?`
+    ).bind(
+      info.registerInviteCode,
+      now,
+      now,
+      info.uid
+    ).run();
+
+    return { inserted: false, updated: true };
   }
 
   async upsertUserBalance(balance: XtUserBalance, runId: number, now: string): Promise<UpsertResult> {

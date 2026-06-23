@@ -161,6 +161,19 @@ curl "https://<worker-url>/admin/users?sort=balance_desc&limit=25" \
   -H "Authorization: Bearer <ADMIN_IMPORT_TOKEN>"
 ```
 
+## Referral Code Sync
+
+Referral code sync stores the XT `registerInviteCode` returned by `get_user_info` on the imported `xt_users` row. It is intentionally bounded because user info is a per-user source call.
+
+Run a protected referral-code sync chunk:
+
+```sh
+curl -X POST "https://<worker-url>/admin/referrals/sync?limit=25" \
+  -H "Authorization: Bearer <ADMIN_IMPORT_TOKEN>"
+```
+
+The dashboard includes a `Sync Referrals` action and displays the stored code in the `Referral Code` column.
+
 ## Trade Volume Sync
 
 Daily trade sync stores per-user trade volume in `xt_user_trade_daily_snapshots`. It targets the previous complete Germany-local day (`Europe/Berlin`) so daily charts use complete days rather than partial same-day values.

@@ -1,5 +1,5 @@
 import type { XtDataStore } from "../src/db";
-import type { ImportCounts, NormalizedXtUser, SyncRunRecord, SyncStateRecord, SyncStateUpdate, UpsertResult, UserListSort, XtUserBalance, XtUserBalanceSnapshot, XtUserDailyTradeSnapshot } from "../src/types";
+import type { ImportCounts, NormalizedXtUser, SyncRunRecord, SyncStateRecord, SyncStateUpdate, UpsertResult, UserListSort, XtUserBalance, XtUserBalanceSnapshot, XtUserDailyTradeSnapshot, XtUserInfo } from "../src/types";
 import type { FetchAffiliateUsersParams, XtAffiliateUsersPage } from "../src/types";
 import type { XtAffiliateUserSource } from "../src/xt-source";
 
@@ -18,6 +18,7 @@ export class FakeSource implements XtAffiliateUserSource {
 
 export class FakeStore implements XtDataStore {
   users = new Map<string, NormalizedXtUser & { firstSeenAt: string; lastSeenAt: string; runId: number }>();
+  userInfos = new Map<string, XtUserInfo & { lastUserInfoSyncAt: string; runId: number }>();
   balances = new Map<string, XtUserBalance & { lastBalanceSyncAt: string; runId: number }>();
   snapshots = new Map<string, XtUserBalanceSnapshot & { runId: number }>();
   tradeSnapshots = new Map<string, XtUserDailyTradeSnapshot & { runId: number }>();
@@ -106,6 +107,8 @@ export class FakeStore implements XtDataStore {
           uid,
           affiliate_item_id: user.affiliateItemId,
           role: user.role,
+          register_invite_code: this.userInfos.get(uid)?.registerInviteCode ?? null,
+          last_user_info_sync_at: this.userInfos.get(uid)?.lastUserInfoSyncAt ?? null,
           registered_at: user.registeredAt,
           first_seen_at: user.firstSeenAt,
           last_seen_at: user.lastSeenAt,
@@ -125,6 +128,16 @@ export class FakeStore implements XtDataStore {
     return Array.from(this.users.keys()).slice(0, input.limit);
   }
 
+  async listUserInfoSyncCandidates(input: { limit: number }): Promise<string[]> {
+    return Array.from(this.users.keys())
+      .sort((a, b) => {
+        const aSynced = this.userInfos.has(a) ? 1 : 0;
+        const bSynced = this.userInfos.has(b) ? 1 : 0;
+        return aSynced - bSynced;
+      })
+      .slice(0, input.limit);
+  }
+
   async listBalanceSyncPage(input: { limit: number; afterUid: string | null }): Promise<string[]> {
     return await this.listUserUidPage(input);
   }
@@ -140,6 +153,16 @@ export class FakeStore implements XtDataStore {
     const existing = this.balances.has(balance.uid);
     this.balances.set(balance.uid, { ...balance, lastBalanceSyncAt: now, runId });
     return { inserted: !existing, updated: existing };
+  }
+
+  async upsertUserInfo(info: XtUserInfo, runId: number, now: string): Promise<UpsertResult> {
+    if (!this.users.has(info.uid)) {
+      return { inserted: false, updated: false };
+    }
+
+    const existing = this.userInfos.has(info.uid);
+    this.userInfos.set(info.uid, { ...info, lastUserInfoSyncAt: now, runId });
+    return { inserted: false, updated: !existing || existing };
   }
 
   async upsertUserBalanceSnapshot(snapshot: XtUserBalanceSnapshot, runId: number): Promise<UpsertResult> {
