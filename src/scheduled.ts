@@ -2,7 +2,8 @@ import { startDailyBalanceSync } from "./balance-sync";
 import { D1XtDataStore, type XtDataStore } from "./db";
 import { UidImporter } from "./importer";
 import { createXtSource, getSourceName } from "./source-factory";
-import type { DailyBalanceSyncStartResult, ScheduledSyncResult } from "./types";
+import { startDailyTradeSync } from "./trade-sync";
+import type { DailyBalanceSyncStartResult, DailyTradeSyncStartResult, ScheduledSyncResult } from "./types";
 import type { XtAffiliateUserSource } from "./xt-source";
 
 export const UID_SCHEDULED_SYNC_OPERATION = "uid-scheduled-sync";
@@ -21,6 +22,13 @@ export async function startScheduledDailyBalanceSync(env: Env): Promise<DailyBal
   return startDailyBalanceSync({
     store: new D1XtDataStore(env.XT_DB),
     queue: env.BALANCE_SYNC_QUEUE
+  });
+}
+
+export async function startScheduledDailyTradeSync(env: Env): Promise<DailyTradeSyncStartResult> {
+  return startDailyTradeSync({
+    store: new D1XtDataStore(env.XT_DB),
+    queue: env.TRADE_SYNC_QUEUE
   });
 }
 

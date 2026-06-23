@@ -146,6 +146,18 @@ describe("sync state admin endpoints", () => {
     expect(response.status).toBe(401);
   });
 
+  it("rejects unauthorized daily trade sync start requests", async () => {
+    const response = await handleRequest(
+      new Request("https://example.com/admin/sync/trades/start", { method: "POST" }),
+      {
+        ENVIRONMENT: "production",
+        ADMIN_IMPORT_TOKEN: "secret"
+      } as Env
+    );
+
+    expect(response.status).toBe(401);
+  });
+
   it("starts daily balance sync for authorized admins", async () => {
     const messages: unknown[] = [];
     const db = {

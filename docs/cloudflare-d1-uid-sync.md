@@ -161,6 +161,34 @@ curl "https://<worker-url>/admin/users?sort=balance_desc&limit=25" \
   -H "Authorization: Bearer <ADMIN_IMPORT_TOKEN>"
 ```
 
+## Trade Volume Sync
+
+Daily trade sync stores per-user trade volume in `xt_user_trade_daily_snapshots`. It targets the previous complete Germany-local day (`Europe/Berlin`) so daily charts use complete days rather than partial same-day values.
+
+Daily trade sync starts from the existing `02:00 UTC` cron and continues through the Cloudflare Queue named `xt-trade-sync`.
+
+The defaults are:
+
+```text
+TRADE_SYNC_CHUNK_LIMIT=10
+```
+
+Daily progress is stored in D1 table `sync_state` under operation `trade-daily-sync`.
+
+Inspect daily trade sync state:
+
+```sh
+curl "https://<worker-url>/admin/sync/trades" \
+  -H "Authorization: Bearer <ADMIN_IMPORT_TOKEN>"
+```
+
+Start the daily trade sync manually:
+
+```sh
+curl -X POST "https://<worker-url>/admin/sync/trades/start" \
+  -H "Authorization: Bearer <ADMIN_IMPORT_TOKEN>"
+```
+
 ## Current Remote Deployment
 
 - Worker URL: `https://xt-database-driver.hamed-saffarian.workers.dev`

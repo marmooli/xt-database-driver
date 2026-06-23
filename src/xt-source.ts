@@ -2,6 +2,7 @@ import type {
   FetchAffiliateUsersParams,
   NormalizedXtUser,
   XtUserBalance,
+  XtUserDailyTrade,
   XtAffiliateUsersPage,
   XtAffiliateUsersResponse,
   XtAffiliateUserItem
@@ -13,6 +14,10 @@ export interface XtAffiliateUserSource {
 
 export interface XtUserBalanceSource {
   fetchUserBalance(uid: string): Promise<XtUserBalance>;
+}
+
+export interface XtUserTradeSource {
+  fetchUserDailyTrade(input: { uid: string; sourceStartMs: number; sourceEndMs: number }): Promise<XtUserDailyTrade>;
 }
 
 export class XtSourceError extends Error {
@@ -135,6 +140,24 @@ export class McpHttpXtUserBalanceSource implements XtUserBalanceSource {
   }
 }
 
+export class McpHttpXtUserTradeSource implements XtUserTradeSource {
+  constructor(private readonly env: Pick<Env, "XT_MCP_URL" | "XT_API_TOKEN">) {}
+
+  async fetchUserDailyTrade(input: { uid: string; sourceStartMs: number; sourceEndMs: number }): Promise<XtUserDailyTrade> {
+    const textContent = await callMcpTool(this.env, "get_user_deposit_trading_data", {
+      uid: Number(input.uid),
+      startTime: input.sourceStartMs,
+      endTime: input.sourceEndMs
+    });
+
+    try {
+      return parseUserDailyTradeResponse(JSON.parse(textContent));
+    } catch (error) {
+      throw new XtSourceError("XT MCP response text was not valid user trade JSON", error);
+    }
+  }
+}
+
 function toMcpArguments(params: FetchAffiliateUsersParams): Record<string, number | string | undefined> {
   return {
     ...params,
@@ -182,6 +205,37 @@ export function parseUserBalanceResponse(payload: unknown): XtUserBalance {
     role: typeof result.role === "string" && result.role.length > 0 ? result.role : null,
     balance,
     balanceText
+  };
+}
+
+export function parseUserDailyTradeResponse(payload: unknown): XtUserDailyTrade {
+  const wrapped = payload as {
+    result?: {
+      userId?: number | string | null;
+      role?: string | null;
+      trade?: boolean | null;
+      tradeAmount?: number | string | null;
+    } | null;
+  };
+  const result = wrapped && typeof wrapped === "object" && "result" in wrapped ? wrapped.result : payload as typeof wrapped.result;
+
+  if (!result || typeof result !== "object") {
+    throw new XtSourceError("XT trade response does not contain a result object");
+  }
+
+  const uid = normalizeIdentifier(result.userId);
+  const tradeAmountText = normalizeIdentifier(result.tradeAmount);
+  const tradeAmount = typeof result.tradeAmount === "number" ? result.tradeAmount : Number(result.tradeAmount);
+  if (!uid || tradeAmountText === null || !Number.isFinite(tradeAmount)) {
+    throw new XtSourceError("XT trade response does not contain a valid uid and trade amount");
+  }
+
+  return {
+    uid,
+    role: typeof result.role === "string" && result.role.length > 0 ? result.role : null,
+    trade: result.trade === true,
+    tradeAmount,
+    tradeAmountText
   };
 }
 

@@ -102,6 +102,21 @@ export interface XtUserBalanceSnapshot extends XtUserBalance {
   capturedAt: string;
 }
 
+export interface XtUserDailyTrade {
+  uid: string;
+  role: string | null;
+  trade: boolean;
+  tradeAmount: number;
+  tradeAmountText: string;
+}
+
+export interface XtUserDailyTradeSnapshot extends XtUserDailyTrade {
+  tradeDate: string;
+  sourceStartMs: number;
+  sourceEndMs: number;
+  capturedAt: string;
+}
+
 export interface BalanceSyncResult extends ImportCounts {
   runId: number;
   status: SyncRunStatus;
@@ -124,6 +139,30 @@ export interface DailyBalanceSyncChunkResult extends BalanceSyncResult {
 
 export interface BalanceSyncQueueMessage {
   syncDate: string;
+  afterUid?: string | null;
+}
+
+export interface DailyTradeSyncStartResult {
+  operation: string;
+  tradeDate: string;
+  started: boolean;
+  reason: "started" | "already-running" | "already-complete";
+}
+
+export interface DailyTradeSyncChunkResult extends ImportCounts {
+  operation: string;
+  tradeDate: string;
+  runId: number;
+  status: SyncRunStatus;
+  cursorStart: string | null;
+  cursorEnd: string | null;
+  exhausted: boolean;
+}
+
+export interface TradeSyncQueueMessage {
+  tradeDate: string;
+  sourceStartMs: number;
+  sourceEndMs: number;
   afterUid?: string | null;
 }
 

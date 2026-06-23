@@ -1,4 +1,4 @@
-import { HttpXtAffiliateUserSource, McpHttpXtAffiliateUserSource, McpHttpXtUserBalanceSource, type XtAffiliateUserSource, type XtUserBalanceSource } from "./xt-source";
+import { HttpXtAffiliateUserSource, McpHttpXtAffiliateUserSource, McpHttpXtUserBalanceSource, McpHttpXtUserTradeSource, type XtAffiliateUserSource, type XtUserBalanceSource, type XtUserTradeSource } from "./xt-source";
 
 export function createXtSource(env: Env): XtAffiliateUserSource {
   if ((env.XT_SOURCE_KIND || "mcp-http") === "mcp-http") {
@@ -14,4 +14,8 @@ export function getSourceName(env: Env): string {
 
 export function createBalanceSource(env: Env): XtUserBalanceSource {
   return new McpHttpXtUserBalanceSource(env);
+}
+
+export function createTradeSource(env: Env): XtUserTradeSource {
+  return new McpHttpXtUserTradeSource(env);
 }

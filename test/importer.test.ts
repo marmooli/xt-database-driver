@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { UidImporter, clampPageLimit } from "../src/importer";
-import { McpHttpXtAffiliateUserSource, normalizeAffiliateUser, parseAffiliateUsersResponse, parseMcpHttpPayload, parseUserBalanceResponse } from "../src/xt-source";
+import { McpHttpXtAffiliateUserSource, normalizeAffiliateUser, parseAffiliateUsersResponse, parseMcpHttpPayload, parseUserBalanceResponse, parseUserDailyTradeResponse } from "../src/xt-source";
 import { FakeSource, FakeStore } from "./fakes";
 
 describe("UID import", () => {
@@ -148,6 +148,24 @@ describe("UID import", () => {
       role: "DIRECTOR",
       balance: 3403.8238,
       balanceText: "3403.8238"
+    });
+  });
+
+  it("parses user daily trade responses", () => {
+    expect(parseUserDailyTradeResponse({
+      rc: 0,
+      result: {
+        userId: 6636211405916,
+        role: "DIRECTOR",
+        trade: true,
+        tradeAmount: "1885244.91821000"
+      }
+    })).toEqual({
+      uid: "6636211405916",
+      role: "DIRECTOR",
+      trade: true,
+      tradeAmount: 1885244.91821,
+      tradeAmountText: "1885244.91821000"
     });
   });
 });

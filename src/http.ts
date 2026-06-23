@@ -4,6 +4,7 @@ import { renderDashboard } from "./dashboard";
 import { UidImporter } from "./importer";
 import { createBalanceSource, createXtSource, getSourceName } from "./source-factory";
 import { UID_SCHEDULED_SYNC_OPERATION } from "./scheduled";
+import { TRADE_DAILY_SYNC_OPERATION, startDailyTradeSync } from "./trade-sync";
 import type { UserListSort } from "./types";
 
 export async function handleRequest(request: Request, env: Env): Promise<Response> {
@@ -97,6 +98,33 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
       queue: env.BALANCE_SYNC_QUEUE
     });
     const state = await store.getSyncState(BALANCE_DAILY_SYNC_OPERATION);
+
+    return json({ result, state }, { status: 202 });
+  }
+
+  if (url.pathname === "/admin/sync/trades" && request.method === "GET") {
+    const unauthorized = requireAdminAuthorization(request, env);
+    if (unauthorized) return unauthorized;
+
+    const store = new D1XtDataStore(env.XT_DB);
+    const [state, userCount] = await Promise.all([
+      store.getSyncState(TRADE_DAILY_SYNC_OPERATION),
+      store.getUserCount()
+    ]);
+
+    return json({ userCount, state });
+  }
+
+  if (url.pathname === "/admin/sync/trades/start" && request.method === "POST") {
+    const unauthorized = requireAdminAuthorization(request, env);
+    if (unauthorized) return unauthorized;
+
+    const store = new D1XtDataStore(env.XT_DB);
+    const result = await startDailyTradeSync({
+      store,
+      queue: env.TRADE_SYNC_QUEUE
+    });
+    const state = await store.getSyncState(TRADE_DAILY_SYNC_OPERATION);
 
     return json({ result, state }, { status: 202 });
   }

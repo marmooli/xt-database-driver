@@ -1,5 +1,5 @@
 import type { XtDataStore } from "../src/db";
-import type { ImportCounts, NormalizedXtUser, SyncRunRecord, SyncStateRecord, SyncStateUpdate, UpsertResult, UserListSort, XtUserBalance, XtUserBalanceSnapshot } from "../src/types";
+import type { ImportCounts, NormalizedXtUser, SyncRunRecord, SyncStateRecord, SyncStateUpdate, UpsertResult, UserListSort, XtUserBalance, XtUserBalanceSnapshot, XtUserDailyTradeSnapshot } from "../src/types";
 import type { FetchAffiliateUsersParams, XtAffiliateUsersPage } from "../src/types";
 import type { XtAffiliateUserSource } from "../src/xt-source";
 
@@ -20,6 +20,7 @@ export class FakeStore implements XtDataStore {
   users = new Map<string, NormalizedXtUser & { firstSeenAt: string; lastSeenAt: string; runId: number }>();
   balances = new Map<string, XtUserBalance & { lastBalanceSyncAt: string; runId: number }>();
   snapshots = new Map<string, XtUserBalanceSnapshot & { runId: number }>();
+  tradeSnapshots = new Map<string, XtUserDailyTradeSnapshot & { runId: number }>();
   runs: SyncRunRecord[] = [];
   states = new Map<string, SyncStateRecord>();
   nextRunId = 1;
@@ -120,6 +121,10 @@ export class FakeStore implements XtDataStore {
   }
 
   async listBalanceSyncPage(input: { limit: number; afterUid: string | null }): Promise<string[]> {
+    return await this.listUserUidPage(input);
+  }
+
+  async listUserUidPage(input: { limit: number; afterUid: string | null }): Promise<string[]> {
     return Array.from(this.users.keys())
       .sort((a, b) => Number(a) - Number(b))
       .filter((uid) => input.afterUid === null || Number(uid) > Number(input.afterUid))
@@ -136,6 +141,13 @@ export class FakeStore implements XtDataStore {
     const key = `${snapshot.uid}:${snapshot.snapshotDate}`;
     const existing = this.snapshots.has(key);
     this.snapshots.set(key, { ...snapshot, runId });
+    return { inserted: !existing, updated: existing };
+  }
+
+  async upsertUserDailyTradeSnapshot(snapshot: XtUserDailyTradeSnapshot, runId: number): Promise<UpsertResult> {
+    const key = `${snapshot.uid}:${snapshot.tradeDate}`;
+    const existing = this.tradeSnapshots.has(key);
+    this.tradeSnapshots.set(key, { ...snapshot, runId });
     return { inserted: !existing, updated: existing };
   }
 

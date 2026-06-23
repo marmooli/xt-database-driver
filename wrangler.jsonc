@@ -12,7 +12,8 @@
     "XT_HTTP_METHOD": "GET",
     "UID_SYNC_MAX_PAGES": "5",
     "UID_SYNC_LIMIT": "100",
-    "BALANCE_SYNC_CHUNK_LIMIT": "100"
+    "BALANCE_SYNC_CHUNK_LIMIT": "100",
+    "TRADE_SYNC_CHUNK_LIMIT": "10"
   },
   "triggers": {
     "crons": ["0 2 * * *"]
@@ -22,11 +23,20 @@
       {
         "binding": "BALANCE_SYNC_QUEUE",
         "queue": "xt-balance-sync"
+      },
+      {
+        "binding": "TRADE_SYNC_QUEUE",
+        "queue": "xt-trade-sync"
       }
     ],
     "consumers": [
       {
         "queue": "xt-balance-sync",
+        "max_batch_size": 1,
+        "max_batch_timeout": 30
+      },
+      {
+        "queue": "xt-trade-sync",
         "max_batch_size": 1,
         "max_batch_timeout": 30
       }
