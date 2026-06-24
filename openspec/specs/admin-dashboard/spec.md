@@ -83,6 +83,17 @@ The dashboard SHALL display stored XT registration invite codes for UID rows whe
 - **WHEN** dashboard user rows include `register_invite_code`
 - **THEN** the dashboard SHALL show the referral code in the user table
 
+### Requirement: Dashboard can filter by referral code
+The dashboard SHALL allow admins to filter main user rows by selected referral codes.
+
+#### Scenario: Admin filters referral codes
+- **WHEN** an admin selects a subset of referral codes from the referral-code column filter
+- **THEN** the dashboard SHALL reload user rows limited to users with the selected referral codes
+
+#### Scenario: Admin clears referral-code filter
+- **WHEN** an admin clears the referral-code filter
+- **THEN** the dashboard SHALL reload user rows without a referral-code filter
+
 ### Requirement: Dashboard can start bounded referral-code sync
 The dashboard SHALL expose an admin action for starting queue-backed registration invite code backfill.
 

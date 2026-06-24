@@ -1,4 +1,4 @@
-import type { ImportCounts, NormalizedXtUser, ReferralCodeRecord, SyncRunRecord, SyncStateRecord, SyncStateUpdate, UpsertResult, UserDailyTradeHistoryRow, UserListSort, UserTradeProfile, XtUserBalance, XtUserBalanceSnapshot, XtUserDailyTradeSnapshot, XtUserInfo, XtUserRecord } from "./types";
+import type { ImportCounts, NormalizedXtUser, ReferralCodeRecord, SyncRunRecord, SyncStateRecord, SyncStateUpdate, UpsertResult, UserDailyTradeHistoryRow, UserListSort, UserReferralCodeFilter, UserTradeProfile, XtUserBalance, XtUserBalanceSnapshot, XtUserDailyTradeSnapshot, XtUserInfo, XtUserRecord } from "./types";
 
 export interface XtDataStore {
   createSyncRun(input: { source: string; operation: string; cursorStart: string | null }): Promise<number>;
@@ -7,7 +7,14 @@ export interface XtDataStore {
   upsertUser(user: NormalizedXtUser, runId: number, now: string): Promise<UpsertResult>;
   getLatestSyncRun(): Promise<SyncRunRecord | null>;
   getUserCount(): Promise<number>;
-  listUsers(input: { limit: number; offset: number; sort: UserListSort; tradeDateStart: string; tradeDateEnd: string }): Promise<XtUserRecord[]>;
+  listUsers(input: {
+    limit: number;
+    offset: number;
+    sort: UserListSort;
+    tradeDateStart: string;
+    tradeDateEnd: string;
+    referralCodeFilter: UserReferralCodeFilter | null;
+  }): Promise<XtUserRecord[]>;
   getReferralCodeCount(): Promise<number>;
   listReferralCodes(input: { limit: number; offset: number }): Promise<ReferralCodeRecord[]>;
   getUserTradeProfile(uid: string): Promise<UserTradeProfile | null>;
@@ -211,7 +218,14 @@ export class D1XtDataStore implements XtDataStore {
     return (result.results ?? []).map((row) => row.trade_date);
   }
 
-  async listUsers(input: { limit: number; offset: number; sort: UserListSort; tradeDateStart: string; tradeDateEnd: string }): Promise<XtUserRecord[]> {
+  async listUsers(input: {
+    limit: number;
+    offset: number;
+    sort: UserListSort;
+    tradeDateStart: string;
+    tradeDateEnd: string;
+    referralCodeFilter: UserReferralCodeFilter | null;
+  }): Promise<XtUserRecord[]> {
     const orderBy = input.sort === "balance_desc"
       ? "b.balance IS NULL ASC, b.balance DESC, u.last_seen_at DESC"
       : input.sort === "balance_asc"
@@ -223,6 +237,7 @@ export class D1XtDataStore implements XtDataStore {
             : input.sort === "registered_asc"
               ? "u.registered_at IS NULL ASC, u.registered_at ASC, u.last_seen_at DESC"
               : "u.last_seen_at DESC, CAST(u.affiliate_item_id AS INTEGER) DESC";
+    const referralWhere = buildReferralCodeWhere(input.referralCodeFilter);
     const result = await this.db.prepare(
       `SELECT u.uid, u.affiliate_item_id, u.role, u.registered_at, u.first_seen_at,
               u.register_invite_code, u.last_user_info_sync_at, u.last_seen_at,
@@ -236,6 +251,7 @@ export class D1XtDataStore implements XtDataStore {
          ON t.uid = u.uid
         AND t.trade_date >= ?
         AND t.trade_date <= ?
+       ${referralWhere.sql}
        GROUP BY u.uid, u.affiliate_item_id, u.role, u.registered_at,
                 u.register_invite_code, u.last_user_info_sync_at,
                 u.first_seen_at, u.last_seen_at, u.last_sync_run_id,
@@ -243,7 +259,7 @@ export class D1XtDataStore implements XtDataStore {
                 b.last_balance_sync_at
        ORDER BY ${orderBy}
        LIMIT ? OFFSET ?`
-    ).bind(input.tradeDateStart, input.tradeDateEnd, input.limit, input.offset).all<XtUserRecord>();
+    ).bind(input.tradeDateStart, input.tradeDateEnd, ...referralWhere.bindings, input.limit, input.offset).all<XtUserRecord>();
 
     return result.results ?? [];
   }
@@ -505,4 +521,24 @@ export class D1XtDataStore implements XtDataStore {
         updated_at = excluded.updated_at`
     ).bind(operation, now).run();
   }
+}
+
+function buildReferralCodeWhere(filter: UserReferralCodeFilter | null): { sql: string; bindings: string[] } {
+  if (!filter) return { sql: "", bindings: [] };
+
+  const clauses: string[] = [];
+  const bindings: string[] = [];
+
+  if (filter.codes.length > 0) {
+    clauses.push(`u.register_invite_code IN (${filter.codes.map(() => "?").join(", ")})`);
+    bindings.push(...filter.codes);
+  }
+
+  if (filter.includeBlank) {
+    clauses.push("(u.register_invite_code IS NULL OR u.register_invite_code = '')");
+  }
+
+  return clauses.length > 0
+    ? { sql: `WHERE (${clauses.join(" OR ")})`, bindings }
+    : { sql: "WHERE 1 = 0", bindings };
 }

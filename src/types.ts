@@ -97,6 +97,11 @@ export interface ReferralCodeRecord {
   users: number;
 }
 
+export interface UserReferralCodeFilter {
+  codes: string[];
+  includeBlank: boolean;
+}
+
 export type TradeHistoryGrain = "daily" | "weekly" | "monthly" | "yearly";
 
 export interface UserTradeProfile {

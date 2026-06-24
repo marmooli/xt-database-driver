@@ -1,5 +1,5 @@
 import type { XtDataStore } from "../src/db";
-import type { ImportCounts, NormalizedXtUser, SyncRunRecord, SyncStateRecord, SyncStateUpdate, UpsertResult, UserDailyTradeHistoryRow, UserListSort, UserTradeProfile, XtUserBalance, XtUserBalanceSnapshot, XtUserDailyTradeSnapshot, XtUserInfo } from "../src/types";
+import type { ImportCounts, NormalizedXtUser, SyncRunRecord, SyncStateRecord, SyncStateUpdate, UpsertResult, UserDailyTradeHistoryRow, UserListSort, UserReferralCodeFilter, UserTradeProfile, XtUserBalance, XtUserBalanceSnapshot, XtUserDailyTradeSnapshot, XtUserInfo } from "../src/types";
 import type { FetchAffiliateUsersParams, XtAffiliateUsersPage } from "../src/types";
 import type { XtAffiliateUserSource } from "../src/xt-source";
 
@@ -96,8 +96,18 @@ export class FakeStore implements XtDataStore {
     ).size;
   }
 
-  async listUsers(input: { limit: number; offset: number; sort?: UserListSort }) {
+  async listUsers(input: { limit: number; offset: number; sort?: UserListSort; referralCodeFilter?: UserReferralCodeFilter | null }) {
     let rows = Array.from(this.users.entries());
+    if (input.referralCodeFilter) {
+      const filter = input.referralCodeFilter;
+      const selected = new Set(filter.codes);
+      rows = rows.filter(([uid]) => {
+        const code = this.userInfos.get(uid)?.registerInviteCode ?? "";
+        return code === ""
+          ? filter.includeBlank
+          : selected.has(code);
+      });
+    }
     if (input.sort === "balance_desc") {
       rows = rows.sort((a, b) => (this.balances.get(b[0])?.balance ?? -Infinity) - (this.balances.get(a[0])?.balance ?? -Infinity));
     }

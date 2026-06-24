@@ -122,6 +122,20 @@ const DASHBOARD_HTML = String.raw`<!doctype html>
     .error { color: var(--danger); }
     .pill { display: inline-block; padding: 4px 8px; border-radius: 999px; background: #e4f2ef; color: #115e59; font-size: 12px; }
     .amount-link { color: var(--accent); font-weight: 700; text-decoration: none; }
+    .filter-panel {
+      display: none;
+      margin: 0 0 12px auto;
+      max-width: 360px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fffaf0;
+      padding: 12px;
+    }
+    .filter-panel.open { display: block; }
+    .filter-options { display: grid; gap: 8px; max-height: 260px; overflow: auto; margin: 10px 0; }
+    .filter-option { display: flex; align-items: center; gap: 8px; color: var(--ink); }
+    .filter-option input { width: auto; }
+    .filter-actions { display: flex; gap: 8px; justify-content: flex-end; }
     @media (max-width: 880px) {
       header { display: block; }
       .auth { margin-top: 16px; }
@@ -187,9 +201,17 @@ const DASHBOARD_HTML = String.raw`<!doctype html>
         </select>
         <span class="pill" id="pageInfo">Page 1</span>
       </div>
+      <div id="referralFilterPanel" class="filter-panel" aria-label="Referral code filter">
+        <strong>Referral Code Filter</strong>
+        <div class="filter-options" id="referralFilterOptions"></div>
+        <div class="filter-actions">
+          <button class="secondary" id="referralClearBtn" type="button">Clear</button>
+          <button id="referralApplyBtn" type="button">Apply</button>
+        </div>
+      </div>
       <table>
         <thead>
-          <tr><th>UID</th><th>Referral Code</th><th><button id="registrationModeBtn" class="th-toggle" type="button">Registered Date</button></th><th>Balance</th><th>30d Trade Volume</th></tr>
+          <tr><th>UID</th><th><button id="referralFilterBtn" class="th-toggle" type="button">Referral Code</button></th><th><button id="registrationModeBtn" class="th-toggle" type="button">Registered Date</button></th><th>Balance</th><th>30d Trade Volume</th></tr>
         </thead>
         <tbody id="usersBody">
           <tr><td colspan="5">No data loaded.</td></tr>
@@ -208,12 +230,17 @@ const DASHBOARD_HTML = String.raw`<!doctype html>
       limit: 25,
       sort: sessionStorage.getItem("xtUserSort") || "recent",
       registrationMode: sessionStorage.getItem("xtRegistrationMode") || "date",
+      referralFilterActive: sessionStorage.getItem("xtReferralFilterActive") === "1",
+      selectedReferralCodes: parseStoredArray("xtSelectedReferralCodes"),
+      includeBlankReferralCode: sessionStorage.getItem("xtIncludeBlankReferralCode") === "1",
+      referralOptions: null,
       currentUsers: []
     };
     const el = (id) => document.getElementById(id);
     el("tokenInput").value = state.token;
     el("sortSelect").value = state.sort;
     updateRegistrationModeButton();
+    updateReferralFilterButton();
 
     function headers() {
       return state.token ? { authorization: "Bearer " + state.token } : {};
@@ -230,6 +257,21 @@ const DASHBOARD_HTML = String.raw`<!doctype html>
     function fmt(value) {
       if (value === null || value === undefined || value === "") return "-";
       return String(value);
+    }
+    function html(value) {
+      return String(value)
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;");
+    }
+    function parseStoredArray(key) {
+      try {
+        const value = JSON.parse(sessionStorage.getItem(key) || "null");
+        return Array.isArray(value) ? value.filter((item) => typeof item === "string") : null;
+      } catch {
+        return null;
+      }
     }
     const numberFormatter = new Intl.NumberFormat("en-US", {
       minimumFractionDigits: 2,
@@ -273,6 +315,37 @@ const DASHBOARD_HTML = String.raw`<!doctype html>
     function updateRegistrationModeButton() {
       el("registrationModeBtn").textContent = state.registrationMode === "days" ? "Registered Days" : "Registered Date";
     }
+    function updateReferralFilterButton() {
+      el("referralFilterBtn").textContent = state.referralFilterActive ? "Referral Code Filtered" : "Referral Code";
+    }
+    function usersUrl() {
+      const params = new URLSearchParams({
+        limit: String(state.limit),
+        offset: String(state.offset),
+        sort: state.sort
+      });
+      if (state.referralFilterActive) {
+        params.set("referralFilter", "1");
+        for (const code of state.selectedReferralCodes || []) params.append("referralCode", code);
+        if (state.includeBlankReferralCode) params.set("includeBlankReferralCode", "1");
+      }
+      return "/admin/users?" + params.toString();
+    }
+    async function loadReferralOptions() {
+      if (state.referralOptions) return;
+      const data = await api("/admin/referrals/codes?limit=1000&offset=0");
+      state.referralOptions = data.codes.map((item) => item.code);
+      if (!state.selectedReferralCodes) state.selectedReferralCodes = [...state.referralOptions];
+    }
+    function renderReferralFilterOptions() {
+      const selected = new Set(state.referralFilterActive ? state.selectedReferralCodes || [] : state.referralOptions || []);
+      const blankChecked = state.referralFilterActive ? state.includeBlankReferralCode : true;
+      el("referralFilterOptions").innerHTML =
+        '<label class="filter-option"><input type="checkbox" id="blankReferralOption" ' + (blankChecked ? "checked" : "") + '> <span>(blank)</span></label>' +
+        (state.referralOptions || []).map((code) =>
+          '<label class="filter-option"><input type="checkbox" class="referralOption" value="' + html(code) + '" ' + (selected.has(code) ? "checked" : "") + '> <span>' + html(code) + '</span></label>'
+        ).join("");
+    }
     function renderUsers() {
       el("usersBody").innerHTML = state.currentUsers.length
         ? state.currentUsers.map((user) => "<tr><td>" + user.uid + "</td><td>" + fmt(user.register_invite_code) + "</td><td>" + fmtRegistration(user) + "</td><td>" + fmtAmount(user.balance) + "</td><td><a class=\"amount-link\" href=\"/users/" + encodeURIComponent(user.uid) + "/trade\">" + fmtAmount(user.trade_30d_amount) + "</a></td></tr>").join("")
@@ -282,7 +355,7 @@ const DASHBOARD_HTML = String.raw`<!doctype html>
       setMessage("Loading...");
       const [sync, users] = await Promise.all([
         api("/admin/sync/uid"),
-        api("/admin/users?limit=" + state.limit + "&offset=" + state.offset + "&sort=" + state.sort)
+        api(usersUrl())
       ]);
       el("userCount").textContent = fmt(sync.userCount);
       el("latestRun").textContent = fmt(sync.latestRun?.status);
@@ -344,6 +417,44 @@ const DASHBOARD_HTML = String.raw`<!doctype html>
       sessionStorage.setItem("xtRegistrationMode", state.registrationMode);
       updateRegistrationModeButton();
       renderUsers();
+    });
+    el("referralFilterBtn").addEventListener("click", async () => {
+      try {
+        await loadReferralOptions();
+        renderReferralFilterOptions();
+        el("referralFilterPanel").classList.toggle("open");
+      } catch (error) { setMessage(error.message, true); }
+    });
+    el("referralApplyBtn").addEventListener("click", async () => {
+      state.selectedReferralCodes = Array.from(document.querySelectorAll(".referralOption:checked")).map((input) => input.value);
+      state.includeBlankReferralCode = Boolean(el("blankReferralOption")?.checked);
+      const allCodesSelected = Boolean(state.referralOptions) && state.referralOptions.every((code) => state.selectedReferralCodes.includes(code));
+      state.referralFilterActive = !(allCodesSelected && state.includeBlankReferralCode);
+      state.offset = 0;
+      if (state.referralFilterActive) {
+        sessionStorage.setItem("xtReferralFilterActive", "1");
+        sessionStorage.setItem("xtSelectedReferralCodes", JSON.stringify(state.selectedReferralCodes));
+        sessionStorage.setItem("xtIncludeBlankReferralCode", state.includeBlankReferralCode ? "1" : "0");
+      } else {
+        sessionStorage.removeItem("xtReferralFilterActive");
+        sessionStorage.removeItem("xtSelectedReferralCodes");
+        sessionStorage.removeItem("xtIncludeBlankReferralCode");
+      }
+      updateReferralFilterButton();
+      el("referralFilterPanel").classList.remove("open");
+      try { await load(); } catch (error) { setMessage(error.message, true); }
+    });
+    el("referralClearBtn").addEventListener("click", async () => {
+      state.referralFilterActive = false;
+      state.selectedReferralCodes = state.referralOptions ? [...state.referralOptions] : null;
+      state.includeBlankReferralCode = false;
+      state.offset = 0;
+      sessionStorage.removeItem("xtReferralFilterActive");
+      sessionStorage.removeItem("xtSelectedReferralCodes");
+      sessionStorage.removeItem("xtIncludeBlankReferralCode");
+      updateReferralFilterButton();
+      el("referralFilterPanel").classList.remove("open");
+      try { await load(); } catch (error) { setMessage(error.message, true); }
     });
     el("resetBtn").addEventListener("click", async () => {
       setMessage("Resetting scheduled sync state...");

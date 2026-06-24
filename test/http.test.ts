@@ -150,6 +150,43 @@ describe("sync state admin endpoints", () => {
     });
   });
 
+  it("applies referral-code filters to user list data", async () => {
+    const db = {
+      prepare(sql: string) {
+        return {
+          bindings: [] as unknown[],
+          bind(...values: unknown[]) {
+            this.bindings = values;
+            return this;
+          },
+          async all() {
+            expect(sql).toContain("u.register_invite_code IN (?)");
+            expect(sql).toContain("u.register_invite_code IS NULL");
+            expect(this.bindings).toContain("BOAHBL");
+            return { results: [] };
+          }
+        };
+      }
+    } as unknown as D1Database;
+
+    const response = await handleRequest(
+      new Request("https://example.com/admin/users?referralFilter=1&referralCode=BOAHBL&includeBlankReferralCode=1", {
+        headers: { authorization: "Bearer secret" }
+      }),
+      {
+        XT_DB: db,
+        ENVIRONMENT: "production",
+        ADMIN_IMPORT_TOKEN: "secret"
+      } as Env
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      referralCodeFilter: { codes: ["BOAHBL"], includeBlank: true },
+      users: []
+    });
+  });
+
   it("rejects unauthorized balance sync requests", async () => {
     const response = await handleRequest(
       new Request("https://example.com/admin/balances/sync", { method: "POST" }),

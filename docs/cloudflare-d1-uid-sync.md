@@ -196,7 +196,7 @@ curl -X POST "https://<worker-url>/admin/referrals/sync?limit=25" \
   -H "Authorization: Bearer <ADMIN_IMPORT_TOKEN>"
 ```
 
-The dashboard includes a `Sync Referrals` action that starts the queue-backed backfill and displays the stored code in the `Referral Code` column. The main user table also displays the stored XT registration date as `YYYY-MM-DD`; the registration column header toggles between date display and days since registration, and the table can be sorted by registration date. The daily scheduled Worker also starts this backfill when it is not already running, so newly imported users are picked up without re-querying users whose user info has already been checked.
+The dashboard includes a `Sync Referrals` action that starts the queue-backed backfill and displays the stored code in the `Referral Code` column. Clicking the `Referral Code` column header opens a checkbox filter for limiting the main table to selected referral codes, including a `(blank)` option for users without a stored code. The main user table also displays the stored XT registration date as `YYYY-MM-DD`; the registration column header toggles between date display and days since registration, and the table can be sorted by registration date. The daily scheduled Worker also starts this backfill when it is not already running, so newly imported users are picked up without re-querying users whose user info has already been checked.
 
 Open the referral codes page:
 

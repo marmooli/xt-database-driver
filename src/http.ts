@@ -5,7 +5,7 @@ import { UidImporter } from "./importer";
 import { createBalanceSource, createUserInfoSource, createXtSource, getSourceName } from "./source-factory";
 import { UID_SCHEDULED_SYNC_OPERATION } from "./scheduled";
 import { TRADE_BACKFILL_SYNC_OPERATION, TRADE_DAILY_SYNC_OPERATION, addDaysToDateString, completeGermanyDateWindow, previousGermanyDate, startDailyTradeSync, startTradeBackfillSync, toGermanyDate } from "./trade-sync";
-import type { TradeHistoryGrain, UserDailyTradeHistoryRow, UserListSort, UserTradeHistoryPoint } from "./types";
+import type { TradeHistoryGrain, UserDailyTradeHistoryRow, UserListSort, UserReferralCodeFilter, UserTradeHistoryPoint } from "./types";
 import { USER_INFO_BACKFILL_SYNC_OPERATION, UserInfoSyncer, startUserInfoBackfillSync } from "./user-info-sync";
 
 export async function handleRequest(request: Request, env: Env): Promise<Response> {
@@ -185,7 +185,7 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
     if (unauthorized) return unauthorized;
 
     const store = new D1XtDataStore(env.XT_DB);
-    const limit = clampInteger(parseOptionalInteger(url.searchParams.get("limit")), 25, 1, 100);
+    const limit = clampInteger(parseOptionalInteger(url.searchParams.get("limit")), 25, 1, 1000);
     const offset = clampInteger(parseOptionalInteger(url.searchParams.get("offset")), 0, 0, 1000000);
     const [totalCodes, codes] = await Promise.all([
       store.getReferralCodeCount(),
@@ -220,16 +220,18 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
     const limit = clampInteger(parseOptionalInteger(url.searchParams.get("limit")), 25, 1, 100);
     const offset = clampInteger(parseOptionalInteger(url.searchParams.get("offset")), 0, 0, 1000000);
     const sort = parseUserListSort(url.searchParams.get("sort"));
+    const referralCodeFilter = parseReferralCodeFilter(url.searchParams);
     const tradeWindow = completeGermanyDateWindow(new Date(), 30);
     const users = await store.listUsers({
       limit,
       offset,
       sort,
       tradeDateStart: tradeWindow.startDate,
-      tradeDateEnd: tradeWindow.endDate
+      tradeDateEnd: tradeWindow.endDate,
+      referralCodeFilter
     });
 
-    return json({ users, limit, offset, sort, tradeWindow });
+    return json({ users, limit, offset, sort, referralCodeFilter, tradeWindow });
   }
 
   const userTradeHistoryMatch = url.pathname.match(/^\/admin\/users\/([^/]+)\/trade-history$/);
@@ -330,6 +332,20 @@ function parseUserListSort(value: string | null): UserListSort {
     value === "registered_asc"
     ? value
     : "recent";
+}
+
+function parseReferralCodeFilter(params: URLSearchParams): UserReferralCodeFilter | null {
+  if (params.get("referralFilter") !== "1") return null;
+
+  const codes = params
+    .getAll("referralCode")
+    .map((code) => code.trim())
+    .filter((code) => code !== "");
+
+  return {
+    codes: Array.from(new Set(codes)),
+    includeBlank: params.get("includeBlankReferralCode") === "1"
+  };
 }
 
 function parseTradeHistoryGrain(value: string | null): TradeHistoryGrain {
