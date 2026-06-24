@@ -156,6 +156,13 @@ export class FakeStore implements XtDataStore {
     };
   }
 
+  async getNextUserTradeProfile(afterUid: string | null): Promise<UserTradeProfile | null> {
+    const uid = Array.from(this.users.keys())
+      .sort((a, b) => Number(a) - Number(b))
+      .find((candidate) => afterUid === null || Number(candidate) > Number(afterUid));
+    return uid ? await this.getUserTradeProfile(uid) : null;
+  }
+
   async listUserDailyTradeHistory(input: { uid: string; startDate: string; endDate: string }): Promise<UserDailyTradeHistoryRow[]> {
     return Array.from(this.tradeSnapshots.values())
       .filter((snapshot) => snapshot.uid === input.uid)
@@ -166,6 +173,14 @@ export class FakeStore implements XtDataStore {
         trade_amount: snapshot.tradeAmount,
         trade_amount_text: snapshot.tradeAmountText
       }));
+  }
+
+  async listUserTradeSnapshotDates(input: { uid: string; startDate: string; endDate: string }): Promise<string[]> {
+    return Array.from(this.tradeSnapshots.values())
+      .filter((snapshot) => snapshot.uid === input.uid)
+      .filter((snapshot) => snapshot.tradeDate >= input.startDate && snapshot.tradeDate <= input.endDate)
+      .map((snapshot) => snapshot.tradeDate)
+      .sort();
   }
 
   async listBalanceSyncCandidates(input: { limit: number }): Promise<string[]> {
@@ -221,7 +236,7 @@ export class FakeStore implements XtDataStore {
     return { inserted: !existing, updated: existing };
   }
 
-  async upsertUserDailyTradeSnapshot(snapshot: XtUserDailyTradeSnapshot, runId: number): Promise<UpsertResult> {
+  async upsertUserDailyTradeSnapshot(snapshot: XtUserDailyTradeSnapshot, runId: number, _now?: string): Promise<UpsertResult> {
     const key = `${snapshot.uid}:${snapshot.tradeDate}`;
     const existing = this.tradeSnapshots.has(key);
     this.tradeSnapshots.set(key, { ...snapshot, runId });

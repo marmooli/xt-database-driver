@@ -3,8 +3,8 @@ import { D1XtDataStore } from "./db";
 import { handleRequest } from "./http";
 import { runScheduledUidSync, startScheduledDailyBalanceSync, startScheduledDailyTradeSync, startScheduledUserInfoBackfillSync } from "./scheduled";
 import { createBalanceSource, createTradeSource, createUserInfoSource, getSourceName } from "./source-factory";
-import { DailyTradeSyncer } from "./trade-sync";
-import type { BalanceSyncQueueMessage, TradeSyncQueueMessage, UserInfoSyncQueueMessage } from "./types";
+import { DailyTradeSyncer, TradeBackfillSyncer } from "./trade-sync";
+import type { BalanceSyncQueueMessage, TradeBackfillSyncQueueMessage, TradeSyncQueueMessage, UserInfoSyncQueueMessage } from "./types";
 import { UserInfoBackfillSyncer } from "./user-info-sync";
 
 export default {
@@ -19,7 +19,7 @@ export default {
     ctx.waitUntil(startScheduledUserInfoBackfillSync(env));
   },
 
-  async queue(batch: MessageBatch<BalanceSyncQueueMessage | TradeSyncQueueMessage | UserInfoSyncQueueMessage>, env: Env, _ctx: ExecutionContext): Promise<void> {
+  async queue(batch: MessageBatch<BalanceSyncQueueMessage | TradeSyncQueueMessage | TradeBackfillSyncQueueMessage | UserInfoSyncQueueMessage>, env: Env, _ctx: ExecutionContext): Promise<void> {
     if (batch.queue === "xt-trade-sync") {
       const syncer = new DailyTradeSyncer(
         createTradeSource(env),
@@ -30,6 +30,20 @@ export default {
       const limit = parsePositiveInteger(env.TRADE_SYNC_CHUNK_LIMIT, 10);
       for (const message of batch.messages) {
         await syncer.syncChunk(message.body as TradeSyncQueueMessage, limit);
+      }
+      return;
+    }
+
+    if (batch.queue === "xt-trade-backfill-sync") {
+      const syncer = new TradeBackfillSyncer(
+        createTradeSource(env),
+        new D1XtDataStore(env.XT_DB),
+        env.TRADE_BACKFILL_SYNC_QUEUE,
+        getSourceName(env)
+      );
+      const limit = parsePositiveInteger(env.TRADE_BACKFILL_SYNC_DAY_LIMIT, 10);
+      for (const message of batch.messages) {
+        await syncer.syncChunk(message.body as TradeBackfillSyncQueueMessage, limit);
       }
       return;
     }

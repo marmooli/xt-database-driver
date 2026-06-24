@@ -14,6 +14,7 @@
     "UID_SYNC_LIMIT": "100",
     "BALANCE_SYNC_CHUNK_LIMIT": "100",
     "TRADE_SYNC_CHUNK_LIMIT": "10",
+    "TRADE_BACKFILL_SYNC_DAY_LIMIT": "10",
     "USER_INFO_SYNC_CHUNK_LIMIT": "100"
   },
   "triggers": {
@@ -30,6 +31,10 @@
         "queue": "xt-trade-sync"
       },
       {
+        "binding": "TRADE_BACKFILL_SYNC_QUEUE",
+        "queue": "xt-trade-backfill-sync"
+      },
+      {
         "binding": "USER_INFO_SYNC_QUEUE",
         "queue": "xt-user-info-sync"
       }
@@ -42,6 +47,11 @@
       },
       {
         "queue": "xt-trade-sync",
+        "max_batch_size": 1,
+        "max_batch_timeout": 30
+      },
+      {
+        "queue": "xt-trade-backfill-sync",
         "max_batch_size": 1,
         "max_batch_timeout": 30
       },

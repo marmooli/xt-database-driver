@@ -234,6 +234,28 @@ curl -X POST "https://<worker-url>/admin/sync/trades/start" \
   -H "Authorization: Bearer <ADMIN_IMPORT_TOKEN>"
 ```
 
+Historical trade backfill fills missing daily trade snapshots from each user's registration date through yesterday. It uses the separate Cloudflare Queue named `xt-trade-backfill-sync` and skips dates that already have snapshots.
+
+The default backfill chunk size is:
+
+```text
+TRADE_BACKFILL_SYNC_DAY_LIMIT=10
+```
+
+Inspect trade backfill state:
+
+```sh
+curl "https://<worker-url>/admin/sync/trade-backfill" \
+  -H "Authorization: Bearer <ADMIN_IMPORT_TOKEN>"
+```
+
+Start trade backfill:
+
+```sh
+curl -X POST "https://<worker-url>/admin/sync/trade-backfill/start" \
+  -H "Authorization: Bearer <ADMIN_IMPORT_TOKEN>"
+```
+
 Open a user trade-history page:
 
 ```text

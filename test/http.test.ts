@@ -295,6 +295,18 @@ describe("sync state admin endpoints", () => {
     expect(response.status).toBe(401);
   });
 
+  it("rejects unauthorized trade backfill start requests", async () => {
+    const response = await handleRequest(
+      new Request("https://example.com/admin/sync/trade-backfill/start", { method: "POST" }),
+      {
+        ENVIRONMENT: "production",
+        ADMIN_IMPORT_TOKEN: "secret"
+      } as Env
+    );
+
+    expect(response.status).toBe(401);
+  });
+
   it("rejects unauthorized referral backfill start requests", async () => {
     const response = await handleRequest(
       new Request("https://example.com/admin/sync/referrals/start", { method: "POST" }),

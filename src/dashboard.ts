@@ -157,6 +157,7 @@ const DASHBOARD_HTML = String.raw`<!doctype html>
           <button id="importBtn" class="warn" type="button">Run Chunk</button>
           <button id="balanceBtn" class="warn" type="button">Sync Balances</button>
           <button id="referralBtn" class="warn" type="button">Sync Referrals</button>
+          <button id="tradeBackfillBtn" class="warn" type="button">Backfill Trades</button>
           <button id="resetBtn" class="secondary" type="button">Reset Sync</button>
         </div>
       </div>
@@ -264,6 +265,13 @@ const DASHBOARD_HTML = String.raw`<!doctype html>
       try {
         await api("/admin/sync/referrals/start", { method: "POST" });
         state.offset = 0;
+        await load();
+      } catch (error) { setMessage(error.message, true); }
+    });
+    el("tradeBackfillBtn").addEventListener("click", async () => {
+      setMessage("Starting trade-history backfill...");
+      try {
+        await api("/admin/sync/trade-backfill/start", { method: "POST" });
         await load();
       } catch (error) { setMessage(error.message, true); }
     });

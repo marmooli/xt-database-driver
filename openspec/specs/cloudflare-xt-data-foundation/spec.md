@@ -272,3 +272,22 @@ The system SHALL process daily trade sync work through bounded queue chunks.
 #### Scenario: More users remain after a chunk
 - **WHEN** a daily trade sync chunk processes the configured chunk limit
 - **THEN** the system SHALL store the next cursor and enqueue another chunk
+
+### Requirement: Historical trade volume backfill uses bounded queue chunks
+The system SHALL backfill missing per-user daily trade-volume snapshots through bounded queue chunks.
+
+#### Scenario: Admin starts historical trade backfill
+- **WHEN** an authorized admin starts historical trade-volume backfill
+- **THEN** the system SHALL mark the backfill as running and enqueue the first chunk
+
+#### Scenario: Backfill processes missing dates
+- **WHEN** a backfill chunk reaches a UID and Germany-local trade date without an existing snapshot
+- **THEN** the system SHALL fetch that user's trade volume for that date and store it as a daily trade snapshot
+
+#### Scenario: Backfill sees an existing snapshot
+- **WHEN** a backfill chunk reaches a UID and Germany-local trade date with an existing snapshot
+- **THEN** the system SHALL skip that date without calling the XT source
+
+#### Scenario: Backfill continues across dates and users
+- **WHEN** a backfill chunk reaches its configured day limit before all historical dates are checked
+- **THEN** the system SHALL enqueue a follow-up chunk for the next date or next UID

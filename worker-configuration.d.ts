@@ -2,6 +2,7 @@ interface Env {
   XT_DB: D1Database;
   BALANCE_SYNC_QUEUE: Queue;
   TRADE_SYNC_QUEUE: Queue;
+  TRADE_BACKFILL_SYNC_QUEUE: Queue;
   USER_INFO_SYNC_QUEUE: Queue;
   ENVIRONMENT?: string;
   XT_API_BASE_URL?: string;
@@ -14,6 +15,7 @@ interface Env {
   UID_SYNC_LIMIT?: string;
   BALANCE_SYNC_CHUNK_LIMIT?: string;
   TRADE_SYNC_CHUNK_LIMIT?: string;
+  TRADE_BACKFILL_SYNC_DAY_LIMIT?: string;
   USER_INFO_SYNC_CHUNK_LIMIT?: string;
   XT_API_TOKEN?: string;
   ADMIN_IMPORT_TOKEN?: string;

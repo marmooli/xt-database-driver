@@ -224,6 +224,28 @@ export interface TradeSyncQueueMessage {
   afterUid?: string | null;
 }
 
+export interface TradeBackfillSyncStartResult {
+  operation: string;
+  started: boolean;
+  reason: "started" | "already-running";
+}
+
+export interface TradeBackfillSyncChunkResult extends ImportCounts {
+  operation: string;
+  runId: number;
+  status: SyncRunStatus;
+  uid: string | null;
+  cursorDateStart: string | null;
+  cursorDateEnd: string | null;
+  exhausted: boolean;
+}
+
+export interface TradeBackfillSyncQueueMessage {
+  uid?: string | null;
+  nextDate?: string | null;
+  afterUid?: string | null;
+}
+
 export interface ImportCounts {
   processed: number;
   inserted: number;

@@ -4,7 +4,7 @@ import { renderDashboard, renderReferralCodesPage, renderUserTradePage } from ".
 import { UidImporter } from "./importer";
 import { createBalanceSource, createUserInfoSource, createXtSource, getSourceName } from "./source-factory";
 import { UID_SCHEDULED_SYNC_OPERATION } from "./scheduled";
-import { TRADE_DAILY_SYNC_OPERATION, addDaysToDateString, completeGermanyDateWindow, previousGermanyDate, startDailyTradeSync, toGermanyDate } from "./trade-sync";
+import { TRADE_BACKFILL_SYNC_OPERATION, TRADE_DAILY_SYNC_OPERATION, addDaysToDateString, completeGermanyDateWindow, previousGermanyDate, startDailyTradeSync, startTradeBackfillSync, toGermanyDate } from "./trade-sync";
 import type { TradeHistoryGrain, UserDailyTradeHistoryRow, UserListSort, UserTradeHistoryPoint } from "./types";
 import { USER_INFO_BACKFILL_SYNC_OPERATION, UserInfoSyncer, startUserInfoBackfillSync } from "./user-info-sync";
 
@@ -125,6 +125,19 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
     return json({ userCount, state });
   }
 
+  if (url.pathname === "/admin/sync/trade-backfill" && request.method === "GET") {
+    const unauthorized = requireAdminAuthorization(request, env);
+    if (unauthorized) return unauthorized;
+
+    const store = new D1XtDataStore(env.XT_DB);
+    const [state, userCount] = await Promise.all([
+      store.getSyncState(TRADE_BACKFILL_SYNC_OPERATION),
+      store.getUserCount()
+    ]);
+
+    return json({ userCount, state });
+  }
+
   if (url.pathname === "/admin/sync/trades/start" && request.method === "POST") {
     const unauthorized = requireAdminAuthorization(request, env);
     if (unauthorized) return unauthorized;
@@ -135,6 +148,20 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
       queue: env.TRADE_SYNC_QUEUE
     });
     const state = await store.getSyncState(TRADE_DAILY_SYNC_OPERATION);
+
+    return json({ result, state }, { status: 202 });
+  }
+
+  if (url.pathname === "/admin/sync/trade-backfill/start" && request.method === "POST") {
+    const unauthorized = requireAdminAuthorization(request, env);
+    if (unauthorized) return unauthorized;
+
+    const store = new D1XtDataStore(env.XT_DB);
+    const result = await startTradeBackfillSync({
+      store,
+      queue: env.TRADE_BACKFILL_SYNC_QUEUE
+    });
+    const state = await store.getSyncState(TRADE_BACKFILL_SYNC_OPERATION);
 
     return json({ result, state }, { status: 202 });
   }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DailyTradeSyncer, TRADE_DAILY_SYNC_OPERATION, germanyDateRangeToUtcMs, previousGermanyDate, startDailyTradeSync, type TradeSyncQueue } from "../src/trade-sync";
+import { DailyTradeSyncer, TRADE_BACKFILL_SYNC_OPERATION, TRADE_DAILY_SYNC_OPERATION, TradeBackfillSyncer, germanyDateRangeToUtcMs, previousGermanyDate, startDailyTradeSync, startTradeBackfillSync, type TradeBackfillSyncQueue, type TradeSyncQueue } from "../src/trade-sync";
 import { FakeStore } from "./fakes";
 
 describe("daily trade sync", () => {
@@ -81,10 +81,56 @@ describe("daily trade sync", () => {
   });
 });
 
+describe("trade history backfill sync", () => {
+  it("starts trade backfill once while running", async () => {
+    const store = new FakeStore();
+    const queue = new FakeTradeBackfillQueue();
+
+    const first = await startTradeBackfillSync({ store, queue, now: new Date("2026-06-24T02:00:00.000Z") });
+    const second = await startTradeBackfillSync({ store, queue, now: new Date("2026-06-24T02:01:00.000Z") });
+
+    expect(first).toMatchObject({ started: true, operation: TRADE_BACKFILL_SYNC_OPERATION });
+    expect(second).toMatchObject({ started: false, reason: "already-running" });
+    expect(queue.messages).toEqual([{}]);
+  });
+
+  it("backfills missing daily trade snapshots and continues the same user", async () => {
+    const store = new FakeStore();
+    await store.upsertUser({ uid: "100", affiliateItemId: "1", role: "DIRECTOR", registeredAt: Date.UTC(2026, 5, 21) }, 1, "now");
+    await store.upsertUserDailyTradeSnapshot({
+      uid: "100",
+      role: "DIRECTOR",
+      trade: true,
+      tradeAmount: 0,
+      tradeAmountText: "0",
+      tradeDate: "2026-06-21",
+      sourceStartMs: 0,
+      sourceEndMs: 0,
+      capturedAt: "now"
+    }, 1, "now");
+    const queue = new FakeTradeBackfillQueue();
+
+    const result = await new TradeBackfillSyncer(tradeSource(), store, queue, "test-source")
+      .syncChunk({ uid: "100", nextDate: "2026-06-21" }, 2);
+
+    expect(result).toMatchObject({ uid: "100", processed: 1, skipped: 1, inserted: 1, exhausted: false });
+    expect(store.tradeSnapshots.get("100:2026-06-22")).toMatchObject({ tradeAmount: 100 });
+    expect(queue.messages).toEqual([{ uid: "100", nextDate: "2026-06-23" }]);
+  });
+});
+
 class FakeTradeQueue implements TradeSyncQueue {
   messages: Array<{ tradeDate: string; sourceStartMs: number; sourceEndMs: number; afterUid?: string | null }> = [];
 
   async send(message: { tradeDate: string; sourceStartMs: number; sourceEndMs: number; afterUid?: string | null }): Promise<void> {
+    this.messages.push(message);
+  }
+}
+
+class FakeTradeBackfillQueue implements TradeBackfillSyncQueue {
+  messages: Array<{ uid?: string | null; nextDate?: string | null; afterUid?: string | null }> = [];
+
+  async send(message: { uid?: string | null; nextDate?: string | null; afterUid?: string | null }): Promise<void> {
     this.messages.push(message);
   }
 }

@@ -40,6 +40,10 @@ The dashboard SHALL expose bounded operational actions for UID sync management.
 - **WHEN** an authorized admin resets scheduled sync state
 - **THEN** the system SHALL clear the scheduled cursor state
 
+#### Scenario: Admin starts trade-history backfill
+- **WHEN** an authorized admin starts the dashboard trade-history backfill action
+- **THEN** the system SHALL start queue-backed historical trade-volume backfill
+
 ### Requirement: Dashboard displays balance
 The dashboard SHALL display latest known user balance when available.
 
