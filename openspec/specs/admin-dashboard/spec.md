@@ -78,3 +78,25 @@ The system SHALL serve a separate page for listing distinct referral codes and t
 #### Scenario: Referral code data loads successfully
 - **WHEN** an authorized admin loads the referral codes page
 - **THEN** the page SHALL fetch and display distinct referral codes and user counts
+
+### Requirement: Dashboard links users to trade history
+The dashboard SHALL link each user's 30-day trade volume to a dedicated user trade history page.
+
+#### Scenario: Admin opens user trade history
+- **WHEN** an admin clicks a user's 30-day trade volume
+- **THEN** the system SHALL open a page dedicated to that UID's trade volume history
+
+### Requirement: User trade history chart supports time grains
+The user trade history page SHALL show trade volume as a bar chart aggregated by selectable time grain.
+
+#### Scenario: Daily grain is selected
+- **WHEN** the user trade history page loads with daily grain
+- **THEN** the chart SHALL show one bar per Germany-local day from registration date through yesterday
+
+#### Scenario: Larger grain is selected
+- **WHEN** an admin selects weekly, monthly, or yearly grain
+- **THEN** the chart SHALL show bars using the sum of daily trade volume within each period
+
+#### Scenario: Day has no stored data
+- **WHEN** a day has no daily trade snapshot row
+- **THEN** the chart SHALL distinguish that missing day from a stored zero-volume day

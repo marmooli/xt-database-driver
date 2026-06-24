@@ -61,6 +61,17 @@ describe("sync state admin endpoints", () => {
     await expect(response.text()).resolves.toContain("XT Referral Codes");
   });
 
+  it("serves the user trade history page", async () => {
+    const response = await handleRequest(
+      new Request("https://example.com/users/100/trade"),
+      {} as Env
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain("text/html");
+    await expect(response.text()).resolves.toContain("UID 100");
+  });
+
   it("rejects unauthorized sync state requests", async () => {
     const response = await handleRequest(
       new Request("https://example.com/admin/sync/uid"),
@@ -207,6 +218,57 @@ describe("sync state admin endpoints", () => {
         { code: "XRDKVB", users: 1 }
       ]
     });
+  });
+
+  it("returns user trade history with missing days distinguished from zero", async () => {
+    const db = {
+      prepare(sql: string) {
+        return {
+          bind() {
+            return this;
+          },
+          async first() {
+            if (sql.includes("FROM xt_users")) {
+              return {
+                uid: "100",
+                registered_at: Date.UTC(2026, 5, 22),
+                first_seen_at: "2026-06-22T00:00:00.000Z"
+              };
+            }
+            return null;
+          },
+          async all() {
+            expect(sql).toContain("FROM xt_user_trade_daily_snapshots");
+            return {
+              results: [
+                { trade_date: "2026-06-22", trade_amount: 0, trade_amount_text: "0" },
+                { trade_date: "2026-06-23", trade_amount: 25, trade_amount_text: "25" }
+              ]
+            };
+          }
+        };
+      }
+    } as unknown as D1Database;
+
+    const response = await handleRequest(
+      new Request("https://example.com/admin/users/100/trade-history?grain=daily", {
+        headers: { authorization: "Bearer secret" }
+      }),
+      {
+        XT_DB: db,
+        ENVIRONMENT: "production",
+        ADMIN_IMPORT_TOKEN: "secret"
+      } as Env
+    );
+
+    expect(response.status).toBe(200);
+    const body = await response.json() as {
+      points: Array<{ period_start: string; amount: number; has_data: boolean }>;
+    };
+    expect(body.points).toEqual(expect.arrayContaining([
+      expect.objectContaining({ period_start: "2026-06-22", amount: 0, has_data: true }),
+      expect.objectContaining({ period_start: "2026-06-23", amount: 25, has_data: true })
+    ]));
   });
 
   it("rejects unauthorized daily balance sync start requests", async () => {

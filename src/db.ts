@@ -1,4 +1,4 @@
-import type { ImportCounts, NormalizedXtUser, ReferralCodeRecord, SyncRunRecord, SyncStateRecord, SyncStateUpdate, UpsertResult, UserListSort, XtUserBalance, XtUserBalanceSnapshot, XtUserDailyTradeSnapshot, XtUserInfo, XtUserRecord } from "./types";
+import type { ImportCounts, NormalizedXtUser, ReferralCodeRecord, SyncRunRecord, SyncStateRecord, SyncStateUpdate, UpsertResult, UserDailyTradeHistoryRow, UserListSort, UserTradeProfile, XtUserBalance, XtUserBalanceSnapshot, XtUserDailyTradeSnapshot, XtUserInfo, XtUserRecord } from "./types";
 
 export interface XtDataStore {
   createSyncRun(input: { source: string; operation: string; cursorStart: string | null }): Promise<number>;
@@ -10,6 +10,8 @@ export interface XtDataStore {
   listUsers(input: { limit: number; offset: number; sort: UserListSort; tradeDateStart: string; tradeDateEnd: string }): Promise<XtUserRecord[]>;
   getReferralCodeCount(): Promise<number>;
   listReferralCodes(input: { limit: number; offset: number }): Promise<ReferralCodeRecord[]>;
+  getUserTradeProfile(uid: string): Promise<UserTradeProfile | null>;
+  listUserDailyTradeHistory(input: { uid: string; startDate: string; endDate: string }): Promise<UserDailyTradeHistoryRow[]>;
   getUserInfoPendingCount(): Promise<number>;
   listUserInfoSyncCandidates(input: { limit: number }): Promise<string[]>;
   listBalanceSyncCandidates(input: { limit: number }): Promise<string[]>;
@@ -150,6 +152,27 @@ export class D1XtDataStore implements XtDataStore {
        ORDER BY users DESC, code ASC
        LIMIT ? OFFSET ?`
     ).bind(input.limit, input.offset).all<ReferralCodeRecord>();
+
+    return result.results ?? [];
+  }
+
+  async getUserTradeProfile(uid: string): Promise<UserTradeProfile | null> {
+    return await this.db.prepare(
+      `SELECT uid, registered_at, first_seen_at
+       FROM xt_users
+       WHERE uid = ?`
+    ).bind(uid).first<UserTradeProfile>();
+  }
+
+  async listUserDailyTradeHistory(input: { uid: string; startDate: string; endDate: string }): Promise<UserDailyTradeHistoryRow[]> {
+    const result = await this.db.prepare(
+      `SELECT trade_date, trade_amount, trade_amount_text
+       FROM xt_user_trade_daily_snapshots
+       WHERE uid = ?
+         AND trade_date >= ?
+         AND trade_date <= ?
+       ORDER BY trade_date ASC`
+    ).bind(input.uid, input.startDate, input.endDate).all<UserDailyTradeHistoryRow>();
 
     return result.results ?? [];
   }

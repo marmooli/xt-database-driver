@@ -234,6 +234,21 @@ curl -X POST "https://<worker-url>/admin/sync/trades/start" \
   -H "Authorization: Bearer <ADMIN_IMPORT_TOKEN>"
 ```
 
+Open a user trade-history page:
+
+```text
+https://<worker-url>/users/<uid>/trade
+```
+
+Fetch protected trade-history data:
+
+```sh
+curl "https://<worker-url>/admin/users/<uid>/trade-history?grain=daily" \
+  -H "Authorization: Bearer <ADMIN_IMPORT_TOKEN>"
+```
+
+Supported grains are `daily`, `weekly`, `monthly`, and `yearly`. Each larger grain uses the sum of the daily trade volumes in that period. Missing daily snapshot rows are marked separately from stored zero-volume days.
+
 ## Current Remote Deployment
 
 - Worker URL: `https://xt-database-driver.hamed-saffarian.workers.dev`

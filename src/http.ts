@@ -1,11 +1,11 @@
 import { BALANCE_DAILY_SYNC_OPERATION, BalanceSyncer, startDailyBalanceSync } from "./balance-sync";
 import { D1XtDataStore } from "./db";
-import { renderDashboard, renderReferralCodesPage } from "./dashboard";
+import { renderDashboard, renderReferralCodesPage, renderUserTradePage } from "./dashboard";
 import { UidImporter } from "./importer";
 import { createBalanceSource, createUserInfoSource, createXtSource, getSourceName } from "./source-factory";
 import { UID_SCHEDULED_SYNC_OPERATION } from "./scheduled";
-import { TRADE_DAILY_SYNC_OPERATION, completeGermanyDateWindow, startDailyTradeSync } from "./trade-sync";
-import type { UserListSort } from "./types";
+import { TRADE_DAILY_SYNC_OPERATION, addDaysToDateString, completeGermanyDateWindow, previousGermanyDate, startDailyTradeSync, toGermanyDate } from "./trade-sync";
+import type { TradeHistoryGrain, UserDailyTradeHistoryRow, UserListSort, UserTradeHistoryPoint } from "./types";
 import { USER_INFO_BACKFILL_SYNC_OPERATION, UserInfoSyncer, startUserInfoBackfillSync } from "./user-info-sync";
 
 export async function handleRequest(request: Request, env: Env): Promise<Response> {
@@ -17,6 +17,11 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
 
   if (url.pathname === "/referrals" && request.method === "GET") {
     return renderReferralCodesPage();
+  }
+
+  const userTradePageMatch = url.pathname.match(/^\/users\/([^/]+)\/trade$/);
+  if (userTradePageMatch && request.method === "GET") {
+    return renderUserTradePage(decodeURIComponent(userTradePageMatch[1]));
   }
 
   if (url.pathname === "/health" && request.method === "GET") {
@@ -200,6 +205,35 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
     return json({ users, limit, offset, sort, tradeWindow });
   }
 
+  const userTradeHistoryMatch = url.pathname.match(/^\/admin\/users\/([^/]+)\/trade-history$/);
+  if (userTradeHistoryMatch && request.method === "GET") {
+    const unauthorized = requireAdminAuthorization(request, env);
+    if (unauthorized) return unauthorized;
+
+    const uid = decodeURIComponent(userTradeHistoryMatch[1]);
+    const grain = parseTradeHistoryGrain(url.searchParams.get("grain"));
+    const store = new D1XtDataStore(env.XT_DB);
+    const profile = await store.getUserTradeProfile(uid);
+    if (!profile) {
+      return json({ error: "User not found" }, { status: 404 });
+    }
+
+    const endDate = previousGermanyDate(new Date());
+    const startDate = profile.registered_at
+      ? toGermanyDate(new Date(profile.registered_at))
+      : profile.first_seen_at.slice(0, 10);
+    const boundedStartDate = startDate <= endDate ? startDate : endDate;
+    const rows = await store.listUserDailyTradeHistory({ uid, startDate: boundedStartDate, endDate });
+    const points = buildTradeHistoryPoints({
+      rows,
+      grain,
+      startDate: boundedStartDate,
+      endDate
+    });
+
+    return json({ user: profile, grain, startDate: boundedStartDate, endDate, points });
+  }
+
   if (url.pathname === "/admin/balances/sync" && request.method === "POST") {
     const unauthorized = requireAdminAuthorization(request, env);
     if (unauthorized) return unauthorized;
@@ -263,6 +297,75 @@ function clampInteger(value: number | undefined, fallback: number, min: number, 
 
 function parseUserListSort(value: string | null): UserListSort {
   return value === "balance_desc" || value === "balance_asc" || value === "trade_30d_desc" ? value : "recent";
+}
+
+function parseTradeHistoryGrain(value: string | null): TradeHistoryGrain {
+  return value === "weekly" || value === "monthly" || value === "yearly" ? value : "daily";
+}
+
+function buildTradeHistoryPoints(input: {
+  rows: UserDailyTradeHistoryRow[];
+  grain: TradeHistoryGrain;
+  startDate: string;
+  endDate: string;
+}): UserTradeHistoryPoint[] {
+  const rowsByDate = new Map(input.rows.map((row) => [row.trade_date, row]));
+  const buckets = new Map<string, UserTradeHistoryPoint>();
+
+  for (let date = input.startDate; date <= input.endDate; date = addDaysToDateString(date, 1)) {
+    const bucketStart = getTradeHistoryBucketStart(date, input.grain);
+    const periodStart = bucketStart < input.startDate ? input.startDate : bucketStart;
+    const bucketEnd = getTradeHistoryBucketEnd(bucketStart, input.grain);
+    const periodEnd = bucketEnd > input.endDate ? input.endDate : bucketEnd;
+    const key = `${periodStart}:${periodEnd}`;
+    const row = rowsByDate.get(date);
+    const existing = buckets.get(key) ?? {
+      period_start: periodStart,
+      period_end: periodEnd,
+      amount: 0,
+      amount_text: "0",
+      data_days: 0,
+      expected_days: 0,
+      has_data: false
+    };
+
+    existing.expected_days += 1;
+    if (row) {
+      existing.amount += row.trade_amount;
+      existing.data_days += 1;
+      existing.has_data = true;
+      existing.amount_text = formatAmount(existing.amount);
+    }
+    buckets.set(key, existing);
+  }
+
+  return Array.from(buckets.values()).sort((a, b) => a.period_start.localeCompare(b.period_start));
+}
+
+function getTradeHistoryBucketStart(date: string, grain: TradeHistoryGrain): string {
+  if (grain === "daily") return date;
+  if (grain === "monthly") return `${date.slice(0, 7)}-01`;
+  if (grain === "yearly") return `${date.slice(0, 4)}-01-01`;
+
+  const [year, month, day] = date.split("-").map(Number);
+  const utc = new Date(Date.UTC(year, month - 1, day));
+  const dayOfWeek = utc.getUTCDay() === 0 ? 7 : utc.getUTCDay();
+  return addDaysToDateString(date, 1 - dayOfWeek);
+}
+
+function getTradeHistoryBucketEnd(bucketStart: string, grain: TradeHistoryGrain): string {
+  if (grain === "daily") return bucketStart;
+  if (grain === "weekly") return addDaysToDateString(bucketStart, 6);
+  if (grain === "monthly") {
+    const [year, month] = bucketStart.split("-").map(Number);
+    return new Date(Date.UTC(year, month, 0)).toISOString().slice(0, 10);
+  }
+  const year = bucketStart.slice(0, 4);
+  return `${year}-12-31`;
+}
+
+function formatAmount(value: number): string {
+  return Number.isFinite(value) ? value.toFixed(8).replace(/\.?0+$/, "") : "0";
 }
 
 function json(body: unknown, init: ResponseInit = {}): Response {

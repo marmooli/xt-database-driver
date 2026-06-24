@@ -165,7 +165,7 @@ export function germanyDateRangeToUtcMs(date: string): { sourceStartMs: number; 
   };
 }
 
-function toGermanyDate(date: Date): string {
+export function toGermanyDate(date: Date): string {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: "Europe/Berlin",
     year: "numeric",
@@ -181,7 +181,7 @@ function toGermanyDate(date: Date): string {
   return `${year}-${month}-${day}`;
 }
 
-function addDaysToDateString(date: string, days: number): string {
+export function addDaysToDateString(date: string, days: number): string {
   const [year, month, day] = date.split("-").map(Number);
   const utc = new Date(Date.UTC(year, month - 1, day + days));
   return utc.toISOString().slice(0, 10);

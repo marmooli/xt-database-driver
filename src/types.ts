@@ -97,6 +97,30 @@ export interface ReferralCodeRecord {
   users: number;
 }
 
+export type TradeHistoryGrain = "daily" | "weekly" | "monthly" | "yearly";
+
+export interface UserTradeProfile {
+  uid: string;
+  registered_at: number | null;
+  first_seen_at: string;
+}
+
+export interface UserDailyTradeHistoryRow {
+  trade_date: string;
+  trade_amount: number;
+  trade_amount_text: string;
+}
+
+export interface UserTradeHistoryPoint {
+  period_start: string;
+  period_end: string;
+  amount: number;
+  amount_text: string;
+  data_days: number;
+  expected_days: number;
+  has_data: boolean;
+}
+
 export type UserListSort = "recent" | "balance_desc" | "balance_asc" | "trade_30d_desc";
 
 export interface XtUserBalance {

@@ -16,6 +16,23 @@ export function renderReferralCodesPage(): Response {
   });
 }
 
+export function renderUserTradePage(uid: string): Response {
+  return new Response(USER_TRADE_HTML.replaceAll("__UID__", escapeHtml(uid)), {
+    headers: {
+      "content-type": "text/html; charset=utf-8",
+      "cache-control": "no-store"
+    }
+  });
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+}
+
 const DASHBOARD_HTML = String.raw`<!doctype html>
 <html lang="en">
 <head>
@@ -93,6 +110,7 @@ const DASHBOARD_HTML = String.raw`<!doctype html>
     .status { min-height: 24px; color: var(--muted); }
     .error { color: var(--danger); }
     .pill { display: inline-block; padding: 4px 8px; border-radius: 999px; background: #e4f2ef; color: #115e59; font-size: 12px; }
+    .amount-link { color: var(--accent); font-weight: 700; text-decoration: none; }
     @media (max-width: 880px) {
       header { display: block; }
       .auth { margin-top: 16px; }
@@ -112,7 +130,7 @@ const DASHBOARD_HTML = String.raw`<!doctype html>
     <header>
       <div>
         <h1>XT Data Dashboard</h1>
-        <p class="sub"><a href="/referrals" style="color: var(--accent); text-decoration: none; font-weight: 700;">Referral codes</a> · Cloudflare D1 UID sync operations</p>
+        <p class="sub"><a href="/referrals" style="color: var(--accent); text-decoration: none; font-weight: 700;">Referral codes</a> - Cloudflare D1 UID sync operations</p>
       </div>
       <form class="auth" id="authForm">
         <input id="tokenInput" type="password" autocomplete="current-password" placeholder="Admin token">
@@ -213,7 +231,7 @@ const DASHBOARD_HTML = String.raw`<!doctype html>
       el("balanceRows").textContent = String(users.users.filter((user) => user.balance !== null && user.balance !== undefined).length);
       el("pageInfo").textContent = "Rows " + (state.offset + 1) + "-" + (state.offset + users.users.length);
       el("usersBody").innerHTML = users.users.length
-        ? users.users.map((user) => "<tr><td>" + user.uid + "</td><td>" + fmt(user.register_invite_code) + "</td><td>" + fmtAmount(user.balance) + "</td><td>" + fmtAmount(user.trade_30d_amount) + "</td></tr>").join("")
+        ? users.users.map((user) => "<tr><td>" + user.uid + "</td><td>" + fmt(user.register_invite_code) + "</td><td>" + fmtAmount(user.balance) + "</td><td><a class=\"amount-link\" href=\"/users/" + encodeURIComponent(user.uid) + "/trade\">" + fmtAmount(user.trade_30d_amount) + "</a></td></tr>").join("")
         : '<tr><td colspan="4">No rows on this page.</td></tr>';
       setMessage("Dashboard data loaded.");
     }
@@ -449,6 +467,251 @@ const REFERRAL_CODES_HTML = String.raw`<!doctype html>
       state.offset += state.limit;
       load().catch((error) => setMessage(error.message, true));
     });
+    if (state.token) load().catch((error) => setMessage(error.message, true));
+  </script>
+</body>
+</html>`;
+
+const USER_TRADE_HTML = String.raw`<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>XT User Trade Volume</title>
+  <style>
+    :root {
+      --bg: #f4f1ea;
+      --ink: #18201e;
+      --muted: #69716d;
+      --line: #d8d1c4;
+      --panel: #fffdf8;
+      --accent: #0f766e;
+      --accent-2: #b45309;
+      --danger: #b42318;
+      --zero: #94a3b8;
+      --missing: #d8d1c4;
+      --shadow: 0 18px 60px rgba(24, 32, 30, .10);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Aptos", "Segoe UI", sans-serif;
+      color: var(--ink);
+      background:
+        linear-gradient(135deg, rgba(15,118,110,.10), transparent 34%),
+        radial-gradient(circle at 80% 0%, rgba(180,83,9,.12), transparent 32%),
+        var(--bg);
+    }
+    button, input { font: inherit; }
+    .shell { max-width: 1180px; margin: 0 auto; padding: 28px; }
+    header { display: flex; justify-content: space-between; gap: 18px; align-items: flex-start; margin-bottom: 24px; }
+    h1 { margin: 0; font-size: 30px; line-height: 1.1; }
+    .sub { margin: 8px 0 0; color: var(--muted); }
+    .auth, .panel, .card { background: rgba(255,253,248,.88); border: 1px solid var(--line); box-shadow: var(--shadow); }
+    .auth { padding: 12px; display: flex; gap: 8px; border-radius: 8px; min-width: min(520px, 100%); }
+    input {
+      width: 100%;
+      border: 1px solid var(--line);
+      background: #fffaf0;
+      color: var(--ink);
+      border-radius: 6px;
+      padding: 10px 11px;
+    }
+    button {
+      border: 0;
+      border-radius: 6px;
+      padding: 10px 13px;
+      cursor: pointer;
+      color: white;
+      background: var(--accent);
+      min-height: 40px;
+      white-space: nowrap;
+    }
+    button.secondary { color: var(--ink); background: #e9e2d5; }
+    button.active { background: var(--accent-2); }
+    .grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-bottom: 16px; }
+    .card { border-radius: 8px; padding: 16px; min-height: 112px; }
+    .label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .06em; }
+    .value { margin-top: 10px; font-size: 26px; font-weight: 760; }
+    .panel { border-radius: 8px; padding: 16px; margin-top: 16px; overflow: hidden; }
+    .toolbar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+    .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+    .status { min-height: 24px; color: var(--muted); }
+    .error { color: var(--danger); }
+    .legend { display: flex; gap: 14px; flex-wrap: wrap; color: var(--muted); font-size: 13px; }
+    .legend span::before { content: ""; display: inline-block; width: 12px; height: 12px; margin-right: 6px; vertical-align: -1px; border-radius: 2px; }
+    .legend .has::before { background: var(--accent); }
+    .legend .zero::before { background: var(--zero); }
+    .legend .missing::before { background: repeating-linear-gradient(45deg, transparent 0 3px, var(--missing) 3px 6px); border: 1px solid var(--missing); }
+    .chart-wrap { overflow-x: auto; padding: 8px 0 2px; }
+    .chart {
+      min-height: 380px;
+      display: flex;
+      align-items: flex-end;
+      gap: 3px;
+      border-left: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+      padding: 18px 10px 52px;
+      position: relative;
+    }
+    .bar-slot {
+      width: 18px;
+      min-width: 18px;
+      height: 280px;
+      display: flex;
+      align-items: flex-end;
+      justify-content: center;
+      position: relative;
+    }
+    .bar {
+      width: 12px;
+      min-height: 2px;
+      border-radius: 3px 3px 0 0;
+      background: var(--accent);
+    }
+    .bar.zero { background: var(--zero); height: 2px !important; }
+    .bar.missing {
+      background: repeating-linear-gradient(45deg, transparent 0 3px, var(--missing) 3px 6px);
+      border: 1px solid var(--missing);
+      height: 24px !important;
+      opacity: .9;
+    }
+    .bar.partial { background: var(--accent-2); }
+    .tick {
+      position: absolute;
+      left: 50%;
+      bottom: -42px;
+      transform: translateX(-50%) rotate(-42deg);
+      transform-origin: center;
+      color: var(--muted);
+      font-size: 11px;
+      white-space: nowrap;
+    }
+    @media (max-width: 880px) {
+      header { display: block; }
+      .auth { margin-top: 16px; }
+      .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    @media (max-width: 620px) {
+      .shell { padding: 18px; }
+      .grid { grid-template-columns: 1fr; }
+      .auth, .toolbar, .actions { display: grid; grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header>
+      <div>
+        <h1>UID __UID__</h1>
+        <p class="sub"><a href="/" style="color: var(--accent); text-decoration: none; font-weight: 700;">Back to dashboard</a> - Daily trade volume history</p>
+      </div>
+      <form class="auth" id="authForm">
+        <input id="tokenInput" type="password" autocomplete="current-password" placeholder="Admin token">
+        <button type="submit">Unlock</button>
+      </form>
+    </header>
+
+    <section class="grid">
+      <div class="card"><div class="label">UID</div><div class="value" id="uidValue">__UID__</div></div>
+      <div class="card"><div class="label">Range</div><div class="value" id="rangeValue">-</div></div>
+      <div class="card"><div class="label">Total Volume</div><div class="value" id="totalValue">-</div></div>
+      <div class="card"><div class="label">Missing Days</div><div class="value" id="missingValue">-</div></div>
+    </section>
+
+    <section class="panel">
+      <div class="toolbar">
+        <div>
+          <strong>Trade Volume</strong>
+          <div class="status" id="message">Enter the admin token to load user trade history.</div>
+        </div>
+        <div class="actions" id="grainButtons">
+          <button type="button" data-grain="daily" class="active">Daily</button>
+          <button type="button" data-grain="weekly">Weekly</button>
+          <button type="button" data-grain="monthly">Monthly</button>
+          <button type="button" data-grain="yearly">Yearly</button>
+        </div>
+      </div>
+      <div class="legend">
+        <span class="has">Volume</span>
+        <span class="zero">Zero</span>
+        <span class="missing">No data</span>
+      </div>
+      <div class="chart-wrap">
+        <div class="chart" id="chart"></div>
+      </div>
+    </section>
+  </main>
+  <script>
+    const uid = "__UID__";
+    const state = { token: sessionStorage.getItem("xtAdminToken") || "", grain: "daily" };
+    const el = (id) => document.getElementById(id);
+    const amountFormatter = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    el("tokenInput").value = state.token;
+
+    function headers() {
+      return state.token ? { authorization: "Bearer " + state.token } : {};
+    }
+    async function api(path, options = {}) {
+      const response = await fetch(path, { ...options, headers: { ...headers(), ...(options.headers || {}) } });
+      if (!response.ok) throw new Error(await response.text());
+      return response.json();
+    }
+    function setMessage(text, error = false) {
+      el("message").textContent = text;
+      el("message").className = error ? "status error" : "status";
+    }
+    function fmtAmount(value) {
+      return amountFormatter.format(Number(value || 0));
+    }
+    function tickLabel(point, grain) {
+      if (grain === "daily") return point.period_start;
+      if (point.period_start === point.period_end) return point.period_start;
+      return point.period_start + " - " + point.period_end;
+    }
+    async function load() {
+      setMessage("Loading...");
+      const data = await api("/admin/users/" + encodeURIComponent(uid) + "/trade-history?grain=" + state.grain);
+      const total = data.points.reduce((sum, point) => sum + point.amount, 0);
+      const expected = data.points.reduce((sum, point) => sum + point.expected_days, 0);
+      const present = data.points.reduce((sum, point) => sum + point.data_days, 0);
+      el("rangeValue").textContent = data.startDate + " - " + data.endDate;
+      el("totalValue").textContent = fmtAmount(total);
+      el("missingValue").textContent = String(expected - present);
+      renderChart(data.points, state.grain);
+      setMessage("Trade history loaded.");
+    }
+    function renderChart(points, grain) {
+      const maxAmount = Math.max(0, ...points.map((point) => point.amount));
+      const width = Math.max(720, points.length * (grain === "daily" ? 21 : 36));
+      el("chart").style.width = width + "px";
+      el("chart").innerHTML = points.map((point, index) => {
+        const height = maxAmount > 0 ? Math.max(2, Math.round((point.amount / maxAmount) * 280)) : 2;
+        const isMissing = !point.has_data;
+        const isZero = point.has_data && point.amount === 0;
+        const isPartial = point.has_data && point.data_days < point.expected_days;
+        const cls = isMissing ? "missing" : isZero ? "zero" : isPartial ? "partial" : "";
+        const labelEvery = grain === "daily" ? Math.max(1, Math.ceil(points.length / 18)) : 1;
+        const label = index % labelEvery === 0 ? '<div class="tick">' + tickLabel(point, grain) + '</div>' : "";
+        const title = tickLabel(point, grain) + "\\n" + (isMissing ? "No data" : "Volume: " + fmtAmount(point.amount)) + "\\nData days: " + point.data_days + "/" + point.expected_days;
+        return '<div class="bar-slot"><div class="bar ' + cls + '" style="height:' + height + 'px" title="' + title + '"></div>' + label + '</div>';
+      }).join("");
+    }
+    el("authForm").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      state.token = el("tokenInput").value.trim();
+      sessionStorage.setItem("xtAdminToken", state.token);
+      try { await load(); } catch (error) { setMessage(error.message, true); }
+    });
+    for (const button of el("grainButtons").querySelectorAll("button")) {
+      button.addEventListener("click", async () => {
+        state.grain = button.dataset.grain;
+        for (const candidate of el("grainButtons").querySelectorAll("button")) {
+          candidate.classList.toggle("active", candidate === button);
+        }
+        try { await load(); } catch (error) { setMessage(error.message, true); }
+      });
+    }
     if (state.token) load().catch((error) => setMessage(error.message, true));
   </script>
 </body>

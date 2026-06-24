@@ -1,5 +1,5 @@
 import type { XtDataStore } from "../src/db";
-import type { ImportCounts, NormalizedXtUser, SyncRunRecord, SyncStateRecord, SyncStateUpdate, UpsertResult, UserListSort, XtUserBalance, XtUserBalanceSnapshot, XtUserDailyTradeSnapshot, XtUserInfo } from "../src/types";
+import type { ImportCounts, NormalizedXtUser, SyncRunRecord, SyncStateRecord, SyncStateUpdate, UpsertResult, UserDailyTradeHistoryRow, UserListSort, UserTradeProfile, XtUserBalance, XtUserBalanceSnapshot, XtUserDailyTradeSnapshot, XtUserInfo } from "../src/types";
 import type { FetchAffiliateUsersParams, XtAffiliateUsersPage } from "../src/types";
 import type { XtAffiliateUserSource } from "../src/xt-source";
 
@@ -143,6 +143,29 @@ export class FakeStore implements XtDataStore {
       .map(([code, users]) => ({ code, users }))
       .sort((a, b) => b.users - a.users || a.code.localeCompare(b.code))
       .slice(input.offset, input.offset + input.limit);
+  }
+
+  async getUserTradeProfile(uid: string): Promise<UserTradeProfile | null> {
+    const user = this.users.get(uid);
+    if (!user) return null;
+
+    return {
+      uid,
+      registered_at: user.registeredAt,
+      first_seen_at: user.firstSeenAt
+    };
+  }
+
+  async listUserDailyTradeHistory(input: { uid: string; startDate: string; endDate: string }): Promise<UserDailyTradeHistoryRow[]> {
+    return Array.from(this.tradeSnapshots.values())
+      .filter((snapshot) => snapshot.uid === input.uid)
+      .filter((snapshot) => snapshot.tradeDate >= input.startDate && snapshot.tradeDate <= input.endDate)
+      .sort((a, b) => a.tradeDate.localeCompare(b.tradeDate))
+      .map((snapshot) => ({
+        trade_date: snapshot.tradeDate,
+        trade_amount: snapshot.tradeAmount,
+        trade_amount_text: snapshot.tradeAmountText
+      }));
   }
 
   async listBalanceSyncCandidates(input: { limit: number }): Promise<string[]> {
