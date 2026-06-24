@@ -323,7 +323,13 @@ function clampInteger(value: number | undefined, fallback: number, min: number, 
 }
 
 function parseUserListSort(value: string | null): UserListSort {
-  return value === "balance_desc" || value === "balance_asc" || value === "trade_30d_desc" ? value : "recent";
+  return value === "balance_desc" ||
+    value === "balance_asc" ||
+    value === "trade_30d_desc" ||
+    value === "registered_desc" ||
+    value === "registered_asc"
+    ? value
+    : "recent";
 }
 
 function parseTradeHistoryGrain(value: string | null): TradeHistoryGrain {

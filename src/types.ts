@@ -121,7 +121,13 @@ export interface UserTradeHistoryPoint {
   has_data: boolean;
 }
 
-export type UserListSort = "recent" | "balance_desc" | "balance_asc" | "trade_30d_desc";
+export type UserListSort =
+  | "recent"
+  | "balance_desc"
+  | "balance_asc"
+  | "trade_30d_desc"
+  | "registered_desc"
+  | "registered_asc";
 
 export interface XtUserBalance {
   uid: string;

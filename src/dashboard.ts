@@ -107,6 +107,17 @@ const DASHBOARD_HTML = String.raw`<!doctype html>
     table { width: 100%; border-collapse: collapse; font-size: 14px; }
     th, td { text-align: left; padding: 12px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
     th { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .05em; }
+    .th-toggle {
+      min-height: 0;
+      padding: 0;
+      border: 0;
+      border-radius: 0;
+      background: transparent;
+      color: var(--muted);
+      font: inherit;
+      text-transform: uppercase;
+      letter-spacing: .05em;
+    }
     .status { min-height: 24px; color: var(--muted); }
     .error { color: var(--danger); }
     .pill { display: inline-block; padding: 4px 8px; border-radius: 999px; background: #e4f2ef; color: #115e59; font-size: 12px; }
@@ -171,15 +182,17 @@ const DASHBOARD_HTML = String.raw`<!doctype html>
           <option value="balance_desc">Balance high to low</option>
           <option value="balance_asc">Balance low to high</option>
           <option value="trade_30d_desc">30d trade high to low</option>
+          <option value="registered_desc">Registration newest first</option>
+          <option value="registered_asc">Registration oldest first</option>
         </select>
         <span class="pill" id="pageInfo">Page 1</span>
       </div>
       <table>
         <thead>
-          <tr><th>UID</th><th>Referral Code</th><th>Balance</th><th>30d Trade Volume</th></tr>
+          <tr><th>UID</th><th>Referral Code</th><th><button id="registrationModeBtn" class="th-toggle" type="button">Registered Date</button></th><th>Balance</th><th>30d Trade Volume</th></tr>
         </thead>
         <tbody id="usersBody">
-          <tr><td colspan="4">No data loaded.</td></tr>
+          <tr><td colspan="5">No data loaded.</td></tr>
         </tbody>
       </table>
       <div class="toolbar" style="margin-top:12px">
@@ -189,10 +202,18 @@ const DASHBOARD_HTML = String.raw`<!doctype html>
     </section>
   </main>
   <script>
-    const state = { token: sessionStorage.getItem("xtAdminToken") || "", offset: 0, limit: 25, sort: sessionStorage.getItem("xtUserSort") || "recent" };
+    const state = {
+      token: sessionStorage.getItem("xtAdminToken") || "",
+      offset: 0,
+      limit: 25,
+      sort: sessionStorage.getItem("xtUserSort") || "recent",
+      registrationMode: sessionStorage.getItem("xtRegistrationMode") || "date",
+      currentUsers: []
+    };
     const el = (id) => document.getElementById(id);
     el("tokenInput").value = state.token;
     el("sortSelect").value = state.sort;
+    updateRegistrationModeButton();
 
     function headers() {
       return state.token ? { authorization: "Bearer " + state.token } : {};
@@ -219,6 +240,44 @@ const DASHBOARD_HTML = String.raw`<!doctype html>
       const number = typeof value === "number" ? value : Number(value);
       return Number.isFinite(number) ? numberFormatter.format(number) : "-";
     }
+    function germanyDateString(date) {
+      return new Intl.DateTimeFormat("en-CA", {
+        timeZone: "Europe/Berlin",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit"
+      }).format(date);
+    }
+    function formatGermanyDateFromMs(value) {
+      if (value === null || value === undefined || value === "") return "-";
+      const number = typeof value === "number" ? value : Number(value);
+      return Number.isFinite(number) ? germanyDateString(new Date(number)) : "-";
+    }
+    function daysBetweenDateStrings(startDate, endDate) {
+      const startParts = startDate.split("-").map(Number);
+      const endParts = endDate.split("-").map(Number);
+      if (startParts.length !== 3 || endParts.length !== 3) return NaN;
+      const start = Date.UTC(startParts[0], startParts[1] - 1, startParts[2]);
+      const end = Date.UTC(endParts[0], endParts[1] - 1, endParts[2]);
+      return Math.floor((end - start) / 86400000);
+    }
+    function fmtRegistration(user) {
+      const date = formatGermanyDateFromMs(user.registered_at);
+      if (date === "-") return "-";
+      if (state.registrationMode === "days") {
+        const days = daysBetweenDateStrings(date, germanyDateString(new Date()));
+        return Number.isFinite(days) ? numberFormatter.format(days).replace(".00", "") : "-";
+      }
+      return date;
+    }
+    function updateRegistrationModeButton() {
+      el("registrationModeBtn").textContent = state.registrationMode === "days" ? "Registered Days" : "Registered Date";
+    }
+    function renderUsers() {
+      el("usersBody").innerHTML = state.currentUsers.length
+        ? state.currentUsers.map((user) => "<tr><td>" + user.uid + "</td><td>" + fmt(user.register_invite_code) + "</td><td>" + fmtRegistration(user) + "</td><td>" + fmtAmount(user.balance) + "</td><td><a class=\"amount-link\" href=\"/users/" + encodeURIComponent(user.uid) + "/trade\">" + fmtAmount(user.trade_30d_amount) + "</a></td></tr>").join("")
+        : '<tr><td colspan="5">No rows on this page.</td></tr>';
+    }
     async function load() {
       setMessage("Loading...");
       const [sync, users] = await Promise.all([
@@ -231,9 +290,8 @@ const DASHBOARD_HTML = String.raw`<!doctype html>
       el("nextCursor").textContent = fmt(sync.state?.next_cursor);
       el("balanceRows").textContent = String(users.users.filter((user) => user.balance !== null && user.balance !== undefined).length);
       el("pageInfo").textContent = "Rows " + (state.offset + 1) + "-" + (state.offset + users.users.length);
-      el("usersBody").innerHTML = users.users.length
-        ? users.users.map((user) => "<tr><td>" + user.uid + "</td><td>" + fmt(user.register_invite_code) + "</td><td>" + fmtAmount(user.balance) + "</td><td><a class=\"amount-link\" href=\"/users/" + encodeURIComponent(user.uid) + "/trade\">" + fmtAmount(user.trade_30d_amount) + "</a></td></tr>").join("")
-        : '<tr><td colspan="4">No rows on this page.</td></tr>';
+      state.currentUsers = users.users;
+      renderUsers();
       setMessage("Dashboard data loaded.");
     }
     el("authForm").addEventListener("submit", async (event) => {
@@ -280,6 +338,12 @@ const DASHBOARD_HTML = String.raw`<!doctype html>
       sessionStorage.setItem("xtUserSort", state.sort);
       state.offset = 0;
       try { await load(); } catch (error) { setMessage(error.message, true); }
+    });
+    el("registrationModeBtn").addEventListener("click", () => {
+      state.registrationMode = state.registrationMode === "days" ? "date" : "days";
+      sessionStorage.setItem("xtRegistrationMode", state.registrationMode);
+      updateRegistrationModeButton();
+      renderUsers();
     });
     el("resetBtn").addEventListener("click", async () => {
       setMessage("Resetting scheduled sync state...");

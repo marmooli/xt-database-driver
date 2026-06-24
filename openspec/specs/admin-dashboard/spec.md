@@ -58,6 +58,24 @@ The dashboard SHALL allow admins to sort user rows by balance.
 - **WHEN** an admin selects balance descending or ascending
 - **THEN** the dashboard SHALL reload user rows with the selected balance sort
 
+### Requirement: Dashboard displays registration date
+The dashboard SHALL display each user's XT registration date in Germany-local calendar format when available.
+
+#### Scenario: Registration date is available
+- **WHEN** dashboard user rows include `registered_at`
+- **THEN** the dashboard SHALL show the registration date as `YYYY-MM-DD`
+
+#### Scenario: Admin toggles registration display mode
+- **WHEN** an admin toggles the registration column header
+- **THEN** the dashboard SHALL switch between registration date and days since registration
+
+### Requirement: Dashboard can sort by registration date
+The dashboard SHALL allow admins to sort user rows by registration date.
+
+#### Scenario: Admin selects registration sort
+- **WHEN** an admin selects registration newest-first or oldest-first sort
+- **THEN** the dashboard SHALL reload user rows with the selected registration sort
+
 ### Requirement: Dashboard displays referral codes
 The dashboard SHALL display stored XT registration invite codes for UID rows when available.
 

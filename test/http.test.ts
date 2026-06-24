@@ -105,6 +105,7 @@ describe("sync state admin endpoints", () => {
           },
           async all() {
             expect(sql).toContain("FROM xt_users");
+            expect(sql).toContain("u.registered_at DESC");
             return {
               results: [{
                 uid: "100",
@@ -131,7 +132,7 @@ describe("sync state admin endpoints", () => {
     } as unknown as D1Database;
 
     const response = await handleRequest(
-      new Request("https://example.com/admin/users?limit=500&offset=0", {
+      new Request("https://example.com/admin/users?limit=500&offset=0&sort=registered_desc", {
         headers: { authorization: "Bearer secret" }
       }),
       {

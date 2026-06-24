@@ -218,7 +218,11 @@ export class D1XtDataStore implements XtDataStore {
         ? "b.balance IS NULL ASC, b.balance ASC, u.last_seen_at DESC"
         : input.sort === "trade_30d_desc"
           ? "trade_30d_amount DESC, u.last_seen_at DESC"
-          : "u.last_seen_at DESC, CAST(u.affiliate_item_id AS INTEGER) DESC";
+          : input.sort === "registered_desc"
+            ? "u.registered_at IS NULL ASC, u.registered_at DESC, u.last_seen_at DESC"
+            : input.sort === "registered_asc"
+              ? "u.registered_at IS NULL ASC, u.registered_at ASC, u.last_seen_at DESC"
+              : "u.last_seen_at DESC, CAST(u.affiliate_item_id AS INTEGER) DESC";
     const result = await this.db.prepare(
       `SELECT u.uid, u.affiliate_item_id, u.role, u.registered_at, u.first_seen_at,
               u.register_invite_code, u.last_user_info_sync_at, u.last_seen_at,

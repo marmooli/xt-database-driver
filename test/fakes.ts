@@ -107,6 +107,12 @@ export class FakeStore implements XtDataStore {
     if (input.sort === "trade_30d_desc") {
       rows = rows.sort((a, b) => this.tradeTotal(b[0]) - this.tradeTotal(a[0]));
     }
+    if (input.sort === "registered_desc") {
+      rows = rows.sort((a, b) => (b[1].registeredAt ?? -Infinity) - (a[1].registeredAt ?? -Infinity));
+    }
+    if (input.sort === "registered_asc") {
+      rows = rows.sort((a, b) => (a[1].registeredAt ?? Infinity) - (b[1].registeredAt ?? Infinity));
+    }
     return rows
       .slice(input.offset, input.offset + input.limit)
       .map(([uid, user]) => {
