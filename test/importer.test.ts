@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { UidImporter, clampPageLimit } from "../src/importer";
-import { McpHttpXtAffiliateUserSource, normalizeAffiliateUser, parseAffiliateUsersResponse, parseMcpHttpPayload, parseUserBalanceResponse, parseUserDailyTradeResponse, parseUserInfoResponse } from "../src/xt-source";
+import { HttpXtUserTradeSource, McpHttpXtAffiliateUserSource, normalizeAffiliateUser, parseAffiliateUsersResponse, parseMcpHttpPayload, parseUserBalanceResponse, parseUserDailyTradeResponse, parseUserInfoResponse } from "../src/xt-source";
 import { FakeSource, FakeStore } from "./fakes";
 
 describe("UID import", () => {
@@ -126,6 +126,52 @@ describe("UID import", () => {
         }
       }
     });
+  });
+
+  it("sends direct HTTP trade requests to the signed proxy route", async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({ url: String(input), init });
+      return new Response(JSON.stringify({
+        rc: 0,
+        mc: "SUCCESS",
+        ma: [],
+        result: {
+          userId: 6636211405916,
+          role: "DIRECTOR",
+          deposit: false,
+          depositDetails: [],
+          trade: true,
+          tradeAmount: "1885244.91821000"
+        }
+      }), { status: 200, headers: { "content-type": "application/json" } });
+    }) as typeof fetch;
+
+    try {
+      const source = new HttpXtUserTradeSource({
+        XT_API_BASE_URL: "https://xt-api.metagitic.com",
+        XT_API_TOKEN: "secret"
+      });
+      await expect(source.fetchUserDailyTrade({
+        uid: "6636211405916",
+        sourceStartMs: 1,
+        sourceEndMs: 2
+      })).resolves.toEqual({
+        uid: "6636211405916",
+        role: "DIRECTOR",
+        trade: true,
+        tradeAmount: 1885244.91821,
+        tradeAmountText: "1885244.91821000"
+      });
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0].url).toBe("https://xt-api.metagitic.com/v4/referal/invite/user/data?uid=6636211405916&startTime=1&endTime=2");
+    expect(calls[0].init?.method).toBe("GET");
+    expect(new Headers(calls[0].init?.headers as HeadersInit).get("authorization")).toBe("Bearer secret");
   });
 
   it("clamps page size to the XT maximum", () => {

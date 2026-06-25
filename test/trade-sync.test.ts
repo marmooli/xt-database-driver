@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { DailyTradeSyncer, TRADE_BACKFILL_SYNC_OPERATION, TRADE_DAILY_SYNC_OPERATION, TradeBackfillSyncer, germanyDateRangeToUtcMs, previousGermanyDate, startDailyTradeSync, startTradeBackfillSync, type TradeBackfillSyncQueue, type TradeSyncQueue } from "../src/trade-sync";
+import { XtSourceError } from "../src/xt-source";
 import { FakeStore } from "./fakes";
 
 describe("daily trade sync", () => {
@@ -94,6 +95,80 @@ describe("trade history backfill sync", () => {
     expect(queue.messages).toEqual([{}]);
   });
 
+  it("resumes a failed trade backfill from its stored cursor", async () => {
+    const store = new FakeStore();
+    const queue = new FakeTradeBackfillQueue();
+    await store.upsertSyncState({
+      operation: TRADE_BACKFILL_SYNC_OPERATION,
+      nextCursor: "12914581.8532081:6117973230304",
+      status: "failed",
+      lastRunId: 1,
+      lastError: "XT trade proxy source returned HTTP 429",
+      lastStartedAt: new Date("2026-06-24T02:00:00.000Z").toISOString(),
+      lastFinishedAt: new Date("2026-06-24T02:05:00.000Z").toISOString()
+    });
+
+    const result = await startTradeBackfillSync({ store, queue, now: new Date("2026-06-24T02:10:00.000Z") });
+
+    expect(result).toMatchObject({ started: true, reason: "started" });
+    expect(queue.messages).toEqual([{ afterTradeAmount: 12914581.8532081, afterUid: "6117973230304" }]);
+    expect((await store.getSyncState(TRADE_BACKFILL_SYNC_OPERATION))?.next_cursor).toBe("12914581.8532081:6117973230304");
+  });
+
+  it("prioritizes higher cumulative trade volume, breaks ties by uid, and places zero-volume users last", async () => {
+    const store = new FakeStore();
+    await store.upsertUser({ uid: "100", affiliateItemId: "1", role: "DIRECTOR", registeredAt: Date.UTC(2026, 5, 23) }, 1, "now");
+    await store.upsertUser({ uid: "200", affiliateItemId: "2", role: "DIRECTOR", registeredAt: Date.UTC(2026, 5, 23) }, 1, "now");
+    await store.upsertUser({ uid: "300", affiliateItemId: "3", role: "DIRECTOR", registeredAt: Date.UTC(2026, 5, 23) }, 1, "now");
+    await store.upsertUserDailyTradeSnapshot({
+      uid: "200",
+      role: "DIRECTOR",
+      trade: true,
+      tradeAmount: 10,
+      tradeAmountText: "10",
+      tradeDate: "2026-06-20",
+      sourceStartMs: 0,
+      sourceEndMs: 0,
+      capturedAt: "now"
+    }, 1, "now");
+    await store.upsertUserDailyTradeSnapshot({
+      uid: "200",
+      role: "DIRECTOR",
+      trade: true,
+      tradeAmount: 10,
+      tradeAmountText: "10",
+      tradeDate: "2026-06-21",
+      sourceStartMs: 0,
+      sourceEndMs: 0,
+      capturedAt: "now"
+    }, 1, "now");
+    await store.upsertUserDailyTradeSnapshot({
+      uid: "300",
+      role: "DIRECTOR",
+      trade: true,
+      tradeAmount: 20,
+      tradeAmountText: "20",
+      tradeDate: "2026-06-20",
+      sourceStartMs: 0,
+      sourceEndMs: 0,
+      capturedAt: "now"
+    }, 1, "now");
+    const queue = new FakeTradeBackfillQueue();
+    const syncer = new TradeBackfillSyncer(tradeSource(), store, queue, "test-source");
+
+    const first = await syncer.syncChunk({}, 100);
+    const second = await syncer.syncChunk(queue.messages[0], 100);
+    const third = await syncer.syncChunk(queue.messages[1], 100);
+
+    expect(first.uid).toBe("200");
+    expect(second.uid).toBe("300");
+    expect(third.uid).toBe("100");
+    expect(queue.messages).toEqual([
+      { afterTradeAmount: 20, afterUid: "200" },
+      { afterTradeAmount: 20, afterUid: "300" }
+    ]);
+  });
+
   it("backfills missing daily trade snapshots and continues the same user", async () => {
     const store = new FakeStore();
     await store.upsertUser({ uid: "100", affiliateItemId: "1", role: "DIRECTOR", registeredAt: Date.UTC(2026, 5, 21) }, 1, "now");
@@ -117,6 +192,23 @@ describe("trade history backfill sync", () => {
     expect(store.tradeSnapshots.get("100:2026-06-22")).toMatchObject({ tradeAmount: 100 });
     expect(queue.messages).toEqual([{ uid: "100", nextDate: "2026-06-23" }]);
   });
+
+  it("keeps backfill running and preserves the cursor when the source rate-limits", async () => {
+    const store = new FakeStore();
+    await store.upsertUser({ uid: "100", affiliateItemId: "1", role: "DIRECTOR", registeredAt: Date.UTC(2026, 5, 21) }, 1, "now");
+    const queue = new FakeTradeBackfillQueue();
+
+    await expect(new TradeBackfillSyncer(rateLimitedTradeSource(), store, queue, "test-source")
+      .syncChunk({ uid: "100", nextDate: "2026-06-21" }, 2))
+      .rejects.toThrow("HTTP 429");
+
+    const state = await store.getSyncState(TRADE_BACKFILL_SYNC_OPERATION);
+    expect(state).toMatchObject({
+      status: "running",
+      next_cursor: "0:100:2026-06-21",
+      last_error: "XT trade proxy source returned HTTP 429"
+    });
+  });
 });
 
 class FakeTradeQueue implements TradeSyncQueue {
@@ -128,9 +220,9 @@ class FakeTradeQueue implements TradeSyncQueue {
 }
 
 class FakeTradeBackfillQueue implements TradeBackfillSyncQueue {
-  messages: Array<{ uid?: string | null; nextDate?: string | null; afterUid?: string | null }> = [];
+  messages: Array<{ uid?: string | null; nextDate?: string | null; afterTradeAmount?: number | null; afterUid?: string | null }> = [];
 
-  async send(message: { uid?: string | null; nextDate?: string | null; afterUid?: string | null }): Promise<void> {
+  async send(message: { uid?: string | null; nextDate?: string | null; afterTradeAmount?: number | null; afterUid?: string | null }): Promise<void> {
     this.messages.push(message);
   }
 }
@@ -145,6 +237,14 @@ function tradeSource() {
         tradeAmount: Number(input.uid),
         tradeAmountText: input.uid
       };
+    }
+  };
+}
+
+function rateLimitedTradeSource() {
+  return {
+    async fetchUserDailyTrade() {
+      throw new XtSourceError("XT trade proxy source returned HTTP 429", undefined, 429);
     }
   };
 }

@@ -210,6 +210,8 @@ That page lists distinct referral codes with their user counts and uses the same
 
 Daily trade sync stores per-user trade volume in `xt_user_trade_daily_snapshots`. It targets the previous complete Germany-local day (`Europe/Berlin`) so daily charts use complete days rather than partial same-day values.
 
+Trade data is fetched from the signed HTTP proxy route at `https://xt-api-proxy.hamed-saffarian.workers.dev/v4/referal/invite/user/data`, which returns the `get_user_deposit_trading_data` shape directly. The trade daily sync and historical trade backfill both use this proxy route rather than the MCP transport. This Worker URL is used for trade sync because the custom domain can be subject to domain-level caching until its Cloudflare cache rules are corrected.
+
 Daily trade sync starts from the existing `02:00 UTC` cron and continues through the Cloudflare Queue named `xt-trade-sync`.
 
 The defaults are:
@@ -240,7 +242,12 @@ The default backfill chunk size is:
 
 ```text
 TRADE_BACKFILL_SYNC_DAY_LIMIT=10
+TRADE_BACKFILL_SYNC_FETCH_CONCURRENCY=1
+TRADE_BACKFILL_SYNC_CONTINUE_DELAY_SECONDS=5
+TRADE_BACKFILL_SYNC_RATE_LIMIT_RETRY_DELAY_SECONDS=300
 ```
+
+The trade backfill uses a conservative direct-proxy pace because XT upstream can return HTTP 429 under bursty historical workloads. A rate-limit response keeps the backfill state running, preserves the current cursor, and enqueues a fresh delayed follow-up message after the configured retry delay.
 
 Inspect trade backfill state:
 
@@ -270,6 +277,58 @@ curl "https://<worker-url>/admin/users/<uid>/trade-history?grain=daily" \
 ```
 
 Supported grains are `daily`, `weekly`, `monthly`, and `yearly`. Each larger grain uses the sum of the daily trade volumes in that period. Missing daily snapshot rows are marked separately from stored zero-volume days.
+
+## Fee History Sync
+
+Daily fee sync stores per-user fee totals in `xt_user_fee_daily_snapshots`. It uses `get_user_commissions` as the source, sums commission `fee` values for a Germany-local day, and targets the previous complete Germany-local day (`Europe/Berlin`).
+
+Daily fee sync starts from the same `02:00 UTC` cron and continues through the Cloudflare Queue named `xt-fee-sync`.
+
+The defaults are:
+
+```text
+FEE_SYNC_CHUNK_LIMIT=100
+FEE_BACKFILL_SYNC_DAY_LIMIT=10
+```
+
+Daily progress is stored in D1 table `sync_state` under operation `fee-daily-sync`.
+
+Inspect daily fee sync state:
+
+```sh
+curl "https://<worker-url>/admin/sync/fees" \
+  -H "Authorization: Bearer <ADMIN_IMPORT_TOKEN>"
+```
+
+Start the daily fee sync manually:
+
+```sh
+curl -X POST "https://<worker-url>/admin/sync/fees/start" \
+  -H "Authorization: Bearer <ADMIN_IMPORT_TOKEN>"
+```
+
+Reset daily fee sync state:
+
+```sh
+curl -X POST "https://<worker-url>/admin/sync/fees/reset" \
+  -H "Authorization: Bearer <ADMIN_IMPORT_TOKEN>"
+```
+
+Historical fee backfill fills missing daily fee snapshots from each user's registration date through yesterday. It uses the separate Cloudflare Queue named `xt-fee-backfill-sync` and skips dates that already have snapshots.
+
+Inspect fee backfill state:
+
+```sh
+curl "https://<worker-url>/admin/sync/fee-backfill" \
+  -H "Authorization: Bearer <ADMIN_IMPORT_TOKEN>"
+```
+
+Start fee backfill:
+
+```sh
+curl -X POST "https://<worker-url>/admin/sync/fee-backfill/start" \
+  -H "Authorization: Bearer <ADMIN_IMPORT_TOKEN>"
+```
 
 ## Current Remote Deployment
 

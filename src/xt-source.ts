@@ -1,6 +1,7 @@
 import type {
   FetchAffiliateUsersParams,
   NormalizedXtUser,
+  XtUserFee,
   XtUserBalance,
   XtUserDailyTrade,
   XtAffiliateUsersPage,
@@ -21,15 +22,30 @@ export interface XtUserTradeSource {
   fetchUserDailyTrade(input: { uid: string; sourceStartMs: number; sourceEndMs: number }): Promise<XtUserDailyTrade>;
 }
 
+export interface XtUserFeeSource {
+  fetchUserDailyFee(input: { uid: string; feeDate: string; sourceStartMs: number; sourceEndMs: number }): Promise<XtUserFee | null>;
+}
+
 export interface XtUserInfoSource {
   fetchUserInfo(uid: string): Promise<XtUserInfo>;
 }
 
 export class XtSourceError extends Error {
-  constructor(message: string, readonly cause?: unknown) {
+  constructor(
+    message: string,
+    readonly cause?: unknown,
+    readonly status?: number,
+    readonly retryAfterSeconds?: number
+  ) {
     super(message);
     this.name = "XtSourceError";
   }
+}
+
+export function isXtRateLimitError(error: unknown): boolean {
+  return error instanceof XtSourceError
+    ? error.status === 429 || error.message.includes("HTTP 429")
+    : error instanceof Error && error.message.includes("HTTP 429");
 }
 
 export class HttpXtAffiliateUserSource implements XtAffiliateUserSource {
@@ -163,6 +179,78 @@ export class McpHttpXtUserTradeSource implements XtUserTradeSource {
   }
 }
 
+export class HttpXtUserTradeSource implements XtUserTradeSource {
+  constructor(private readonly env: Pick<Env, "XT_API_BASE_URL" | "XT_API_TOKEN">) {}
+
+  async fetchUserDailyTrade(input: { uid: string; sourceStartMs: number; sourceEndMs: number }): Promise<XtUserDailyTrade> {
+    const url = new URL("/v4/referal/invite/user/data", this.env.XT_API_BASE_URL || "https://xt-api.metagitic.com");
+    url.searchParams.set("uid", input.uid);
+    url.searchParams.set("startTime", String(input.sourceStartMs));
+    url.searchParams.set("endTime", String(input.sourceEndMs));
+
+    const headers = new Headers({ accept: "application/json" });
+    if (this.env.XT_API_TOKEN) {
+      headers.set("authorization", `Bearer ${this.env.XT_API_TOKEN}`);
+    }
+
+    const response = await fetch(url, { method: "GET", headers });
+    if (!response.ok) {
+      throw new XtSourceError(
+        `XT trade proxy source returned HTTP ${response.status}`,
+        undefined,
+        response.status,
+        parseRetryAfterSeconds(response.headers.get("retry-after"))
+      );
+    }
+
+    let payload: unknown;
+    try {
+      payload = await response.json();
+    } catch (error) {
+      throw new XtSourceError("XT trade proxy source returned invalid JSON", error);
+    }
+
+    try {
+      return parseUserDailyTradeResponse(payload);
+    } catch (error) {
+      throw new XtSourceError("XT trade proxy source response was not valid user trade JSON", error);
+    }
+  }
+}
+
+function parseRetryAfterSeconds(value: string | null): number | undefined {
+  if (!value) return undefined;
+  const seconds = Number(value);
+  if (Number.isFinite(seconds) && seconds > 0) {
+    return Math.trunc(seconds);
+  }
+
+  const dateMs = Date.parse(value);
+  if (!Number.isFinite(dateMs)) {
+    return undefined;
+  }
+
+  return Math.max(1, Math.ceil((dateMs - Date.now()) / 1000));
+}
+
+export class McpHttpXtUserFeeSource implements XtUserFeeSource {
+  constructor(private readonly env: Pick<Env, "XT_MCP_URL" | "XT_API_TOKEN">) {}
+
+  async fetchUserDailyFee(input: { uid: string; feeDate: string; sourceStartMs: number; sourceEndMs: number }): Promise<XtUserFee | null> {
+    const textContent = await callMcpTool(this.env, "get_user_commissions", {
+      uid: Number(input.uid),
+      startTime: input.sourceStartMs,
+      endTime: input.sourceEndMs
+    });
+
+    try {
+      return parseUserCommissionsResponse(JSON.parse(textContent), input.uid, input.feeDate);
+    } catch (error) {
+      throw new XtSourceError("XT MCP response text was not valid user commission JSON", error);
+    }
+  }
+}
+
 export class McpHttpXtUserInfoSource implements XtUserInfoSource {
   constructor(private readonly env: Pick<Env, "XT_MCP_URL" | "XT_API_TOKEN">) {}
 
@@ -255,6 +343,35 @@ export function parseUserDailyTradeResponse(payload: unknown): XtUserDailyTrade 
     trade: result.trade === true,
     tradeAmount,
     tradeAmountText
+  };
+}
+
+export function parseUserCommissionsResponse(payload: unknown, uid: string, feeDate: string): XtUserFee | null {
+  const wrapped = payload as { result?: unknown } | unknown[];
+  const result = wrapped && typeof wrapped === "object" && "result" in wrapped ? (wrapped as { result?: unknown }).result : payload;
+  if (!Array.isArray(result)) {
+    throw new XtSourceError("XT commission response does not contain a result array");
+  }
+
+  const fees = result
+    .map((row) => {
+      if (!row || typeof row !== "object") return null;
+      const commission = row as { commissionDate?: string | null; fee?: number | string | null };
+      if (commission.commissionDate !== feeDate) return null;
+      const fee = typeof commission.fee === "number" ? commission.fee : Number(commission.fee);
+      return Number.isFinite(fee) ? fee : null;
+    })
+    .filter((fee): fee is number => fee !== null);
+
+  if (fees.length === 0) {
+    return null;
+  }
+
+  const total = fees.reduce((sum, fee) => sum + fee, 0);
+  return {
+    uid,
+    fee: total,
+    feeText: String(total)
   };
 }
 

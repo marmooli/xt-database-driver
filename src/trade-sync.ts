@@ -1,6 +1,7 @@
 import type { XtDataStore } from "./db";
-import type { DailyTradeSyncChunkResult, DailyTradeSyncStartResult, TradeBackfillSyncChunkResult, TradeBackfillSyncQueueMessage, TradeBackfillSyncStartResult, TradeSyncQueueMessage, UserTradeProfile } from "./types";
-import type { XtUserTradeSource } from "./xt-source";
+import type { DailyTradeSyncChunkResult, DailyTradeSyncStartResult, TradeBackfillProfile, TradeBackfillSyncChunkResult, TradeBackfillSyncQueueMessage, TradeBackfillSyncStartResult, TradeSyncQueueMessage, UserTradeProfile, XtUserDailyTradeSnapshot } from "./types";
+import { isXtRateLimitError, type XtUserTradeSource } from "./xt-source";
+import { canStartHeavyBackfill, clampHeavyBackfillDayLimit, clampHeavyBackfillFetchConcurrency, mapWithConcurrency } from "./heavy-backfill";
 
 export const TRADE_DAILY_SYNC_OPERATION = "trade-daily-sync";
 export const TRADE_BACKFILL_SYNC_OPERATION = "trade-history-backfill-sync";
@@ -10,7 +11,7 @@ export interface TradeSyncQueue {
 }
 
 export interface TradeBackfillSyncQueue {
-  send(message: TradeBackfillSyncQueueMessage): Promise<unknown>;
+  send(message: TradeBackfillSyncQueueMessage, options?: { delaySeconds?: number }): Promise<unknown>;
 }
 
 export async function startDailyTradeSync(input: {
@@ -162,16 +163,21 @@ export async function startTradeBackfillSync(input: {
     return { operation: TRADE_BACKFILL_SYNC_OPERATION, started: false, reason: "already-running" };
   }
 
+  const canStart = await canStartHeavyBackfill(input.store, TRADE_BACKFILL_SYNC_OPERATION, "fee-history-backfill-sync");
+  if (!canStart) {
+    return { operation: TRADE_BACKFILL_SYNC_OPERATION, started: false, reason: "already-running" };
+  }
+
   await input.store.upsertSyncState({
     operation: TRADE_BACKFILL_SYNC_OPERATION,
-    nextCursor: null,
+    nextCursor: state?.next_cursor ?? null,
     status: "running",
     lastRunId: state?.last_run_id ?? null,
     lastError: null,
     lastStartedAt: now.toISOString(),
     lastFinishedAt: null
   });
-  await input.queue.send({});
+  await input.queue.send(parseTradeBackfillCursor(state?.next_cursor ?? null));
 
   return { operation: TRADE_BACKFILL_SYNC_OPERATION, started: true, reason: "started" };
 }
@@ -184,16 +190,26 @@ export class TradeBackfillSyncer {
     private readonly sourceName = "xt-mcp-http"
   ) {}
 
-  async syncChunk(message: TradeBackfillSyncQueueMessage, dayLimit: number): Promise<TradeBackfillSyncChunkResult> {
-    const boundedDayLimit = Math.max(1, Math.min(50, Math.trunc(dayLimit)));
+  async syncChunk(message: TradeBackfillSyncQueueMessage, dayLimit: number, fetchConcurrency: number = 1, continueDelaySeconds: number = 0): Promise<TradeBackfillSyncChunkResult> {
+    const boundedDayLimit = clampHeavyBackfillDayLimit(dayLimit);
+    const boundedFetchConcurrency = clampHeavyBackfillFetchConcurrency(fetchConcurrency);
+    const boundedContinueDelaySeconds = Math.max(0, Math.trunc(continueDelaySeconds));
     const profile = message.uid
-      ? await this.store.getUserTradeProfile(message.uid)
-      : await this.store.getNextUserTradeProfile(message.afterUid ?? null);
+      ? await this.store.getTradeBackfillProfile(message.uid)
+      : await this.store.getNextTradeBackfillProfile({
+        afterTradeAmount: message.afterTradeAmount ?? null,
+        afterUid: message.afterUid ?? null
+      });
     const cursorDateStart = profile ? message.nextDate ?? getTradeBackfillStartDate(profile) : null;
+    const cursorStart = profile
+      ? message.uid
+        ? formatTradeBackfillCursor(profile, cursorDateStart)
+        : formatTradeBackfillSelectionCursor(message.afterTradeAmount ?? null, message.afterUid ?? null)
+      : null;
     const runId = await this.store.createSyncRun({
       source: this.sourceName,
       operation: TRADE_BACKFILL_SYNC_OPERATION,
-      cursorStart: profile?.uid ?? message.afterUid ?? null
+      cursorStart
     });
     const counts = { processed: 0, inserted: 0, updated: 0, skipped: 0 };
 
@@ -207,10 +223,10 @@ export class TradeBackfillSyncer {
       if (cursorDateStart > endDate) {
         await this.store.finishSyncRun(runId, {
           status: "success",
-          cursorEnd: `${profile.uid}:${cursorDateStart}`,
+          cursorEnd: formatTradeBackfillCursor(profile, cursorDateStart),
           ...counts
         });
-        await this.enqueueNextUserOrFinish(profile.uid, runId, counts);
+        await this.enqueueNextUserOrFinish(profile, runId, counts, boundedContinueDelaySeconds);
         return this.emptyResult(runId, profile.uid, cursorDateStart, false, counts);
       }
 
@@ -221,15 +237,18 @@ export class TradeBackfillSyncer {
         endDate: cursorDateEnd
       }));
       const now = new Date().toISOString();
-      let currentDate = cursorDateStart;
+      const targetDates: string[] = [];
 
-      while (currentDate <= cursorDateEnd) {
+      for (let currentDate = cursorDateStart; currentDate <= cursorDateEnd; currentDate = addDaysToDateString(currentDate, 1)) {
         if (existingDates.has(currentDate)) {
           counts.skipped += 1;
-          currentDate = addDaysToDateString(currentDate, 1);
           continue;
         }
 
+        targetDates.push(currentDate);
+      }
+
+      const fetchedSnapshots = await mapWithConcurrency(targetDates, boundedFetchConcurrency, async (currentDate) => {
         counts.processed += 1;
         const range = germanyDateRangeToUtcMs(currentDate);
         const trade = await this.source.fetchUserDailyTrade({
@@ -237,30 +256,40 @@ export class TradeBackfillSyncer {
           sourceStartMs: range.sourceStartMs,
           sourceEndMs: range.sourceEndMs
         });
-        const result = await this.store.upsertUserDailyTradeSnapshot({
+
+        if (!trade) {
+          counts.skipped += 1;
+          return null;
+        }
+
+        return {
           ...trade,
           tradeDate: currentDate,
           sourceStartMs: range.sourceStartMs,
           sourceEndMs: range.sourceEndMs,
           capturedAt: now
-        }, runId, now);
+        };
+      });
+
+      const snapshots = fetchedSnapshots.filter((snapshot): snapshot is XtUserDailyTradeSnapshot => snapshot !== null);
+      const results = await this.store.upsertUserDailyTradeSnapshots(snapshots, runId, now);
+      for (const result of results) {
         if (result.inserted) counts.inserted += 1;
         if (result.updated) counts.updated += 1;
-        currentDate = addDaysToDateString(currentDate, 1);
       }
 
       await this.store.finishSyncRun(runId, {
         status: "success",
-        cursorEnd: `${profile.uid}:${cursorDateEnd}`,
+        cursorEnd: formatTradeBackfillCursor(profile, cursorDateEnd),
         ...counts
       });
 
       const nextDate = addDaysToDateString(cursorDateEnd, 1);
       if (nextDate <= endDate) {
-        await this.queue.send({ uid: profile.uid, nextDate });
+        await this.queue.send({ uid: profile.uid, nextDate }, { delaySeconds: boundedContinueDelaySeconds });
         await this.store.upsertSyncState({
           operation: TRADE_BACKFILL_SYNC_OPERATION,
-          nextCursor: `${profile.uid}:${nextDate}`,
+          nextCursor: formatTradeBackfillCursor(profile, nextDate),
           status: "running",
           lastRunId: runId,
           lastError: null
@@ -277,7 +306,7 @@ export class TradeBackfillSyncer {
         };
       }
 
-      const exhausted = await this.enqueueNextUserOrFinish(profile.uid, runId, counts);
+      const exhausted = await this.enqueueNextUserOrFinish(profile, runId, counts, boundedContinueDelaySeconds);
       return {
         operation: TRADE_BACKFILL_SYNC_OPERATION,
         runId,
@@ -290,25 +319,29 @@ export class TradeBackfillSyncer {
       };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
+      const rateLimited = isXtRateLimitError(error);
       await this.store.failSyncRun(runId, {
-        cursorEnd: profile?.uid ?? null,
+        cursorEnd: cursorStart,
         errorMessage,
         ...counts
       });
       await this.store.upsertSyncState({
         operation: TRADE_BACKFILL_SYNC_OPERATION,
-        nextCursor: profile?.uid ?? message.afterUid ?? null,
-        status: "failed",
+        nextCursor: cursorStart,
+        status: rateLimited ? "running" : "failed",
         lastRunId: runId,
         lastError: errorMessage,
-        lastFinishedAt: new Date().toISOString()
+        lastFinishedAt: rateLimited ? null : new Date().toISOString()
       });
       throw error;
     }
   }
 
-  private async enqueueNextUserOrFinish(uid: string, runId: number, counts: { processed: number; inserted: number; updated: number; skipped: number }): Promise<boolean> {
-    const nextProfile = await this.store.getNextUserTradeProfile(uid);
+  private async enqueueNextUserOrFinish(profile: TradeBackfillProfile, runId: number, counts: { processed: number; inserted: number; updated: number; skipped: number }, continueDelaySeconds: number): Promise<boolean> {
+    const nextProfile = await this.store.getNextTradeBackfillProfile({
+      afterTradeAmount: profile.cumulative_trade_amount,
+      afterUid: profile.uid
+    });
     if (!nextProfile) {
       await this.store.upsertSyncState({
         operation: TRADE_BACKFILL_SYNC_OPERATION,
@@ -321,11 +354,13 @@ export class TradeBackfillSyncer {
       return true;
     }
 
-    const startDate = getTradeBackfillStartDate(nextProfile);
-    await this.queue.send({ uid: nextProfile.uid, nextDate: startDate, afterUid: uid });
+    await this.queue.send(
+      { afterTradeAmount: profile.cumulative_trade_amount, afterUid: profile.uid },
+      { delaySeconds: continueDelaySeconds }
+    );
     await this.store.upsertSyncState({
       operation: TRADE_BACKFILL_SYNC_OPERATION,
-      nextCursor: `${nextProfile.uid}:${startDate}`,
+      nextCursor: formatTradeBackfillSelectionCursor(profile.cumulative_trade_amount, profile.uid),
       status: "running",
       lastRunId: runId,
       lastError: null
@@ -380,6 +415,30 @@ function getTradeBackfillStartDate(profile: UserTradeProfile): string {
   return profile.registered_at
     ? toGermanyDate(new Date(profile.registered_at))
     : profile.first_seen_at.slice(0, 10);
+}
+
+function formatTradeBackfillCursor(profile: { uid: string; cumulative_trade_amount_text: string }, nextDate: string | null): string {
+  return nextDate ? `${profile.cumulative_trade_amount_text}:${profile.uid}:${nextDate}` : `${profile.cumulative_trade_amount_text}:${profile.uid}`;
+}
+
+function formatTradeBackfillSelectionCursor(afterTradeAmount: number | null, afterUid: string | null): string | null {
+  if (afterTradeAmount === null && afterUid === null) return null;
+  return `${afterTradeAmount ?? 0}:${afterUid ?? ""}`;
+}
+
+export function parseTradeBackfillCursor(cursor: string | null): TradeBackfillSyncQueueMessage {
+  if (!cursor) return {};
+
+  const [amountText, uid, nextDate] = cursor.split(":");
+  if (!amountText || !uid) return {};
+
+  if (nextDate) {
+    return { uid, nextDate };
+  }
+
+  const afterTradeAmount = Number(amountText);
+  if (!Number.isFinite(afterTradeAmount)) return {};
+  return { afterTradeAmount, afterUid: uid };
 }
 
 function minDate(a: string, b: string): string {

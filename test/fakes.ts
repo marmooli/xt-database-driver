@@ -1,5 +1,5 @@
 import type { XtDataStore } from "../src/db";
-import type { ImportCounts, NormalizedXtUser, SyncRunRecord, SyncStateRecord, SyncStateUpdate, UpsertResult, UserDailyTradeHistoryRow, UserListSort, UserReferralCodeFilter, UserTradeProfile, XtUserBalance, XtUserBalanceSnapshot, XtUserDailyTradeSnapshot, XtUserInfo } from "../src/types";
+import type { ImportCounts, NormalizedXtUser, SyncRunRecord, SyncStateRecord, SyncStateUpdate, TradeBackfillProfile, UpsertResult, UserDailyTradeHistoryRow, UserListSort, UserReferralCodeFilter, UserTradeProfile, XtUserBalance, XtUserBalanceSnapshot, XtUserDailyTradeSnapshot, XtUserFeeSnapshot, XtUserInfo } from "../src/types";
 import type { FetchAffiliateUsersParams, XtAffiliateUsersPage } from "../src/types";
 import type { XtAffiliateUserSource } from "../src/xt-source";
 
@@ -22,6 +22,9 @@ export class FakeStore implements XtDataStore {
   balances = new Map<string, XtUserBalance & { lastBalanceSyncAt: string; runId: number }>();
   snapshots = new Map<string, XtUserBalanceSnapshot & { runId: number }>();
   tradeSnapshots = new Map<string, XtUserDailyTradeSnapshot & { runId: number }>();
+  feeSnapshots = new Map<string, XtUserFeeSnapshot & { runId: number }>();
+  tradeSnapshotBatchSizes: number[] = [];
+  feeSnapshotBatchSizes: number[] = [];
   runs: SyncRunRecord[] = [];
   states = new Map<string, SyncStateRecord>();
   nextRunId = 1;
@@ -179,6 +182,53 @@ export class FakeStore implements XtDataStore {
     return uid ? await this.getUserTradeProfile(uid) : null;
   }
 
+  async getTradeBackfillProfile(uid: string): Promise<TradeBackfillProfile | null> {
+    const user = this.users.get(uid);
+    if (!user) return null;
+
+    return {
+      uid,
+      registered_at: user.registeredAt,
+      first_seen_at: user.firstSeenAt,
+      cumulative_trade_amount: this.tradeTotal(uid),
+      cumulative_trade_amount_text: String(this.tradeTotal(uid))
+    };
+  }
+
+  async getNextTradeBackfillProfile(input: { afterTradeAmount: number | null; afterUid: string | null }): Promise<TradeBackfillProfile | null> {
+    const candidates = Array.from(this.users.keys())
+      .map((uid) => ({
+        uid,
+        user: this.users.get(uid)!,
+        total: this.tradeTotal(uid)
+      }))
+      .sort((a, b) => b.total - a.total || Number(a.uid) - Number(b.uid));
+
+    if (input.afterTradeAmount === null && input.afterUid === null) {
+      const candidate = candidates[0];
+      return candidate ? {
+        uid: candidate.uid,
+        registered_at: candidate.user.registeredAt,
+        first_seen_at: candidate.user.firstSeenAt,
+        cumulative_trade_amount: candidate.total,
+        cumulative_trade_amount_text: String(candidate.total)
+      } : null;
+    }
+
+    if (input.afterTradeAmount === null || input.afterUid === null) {
+      return input.afterUid ? await this.getTradeBackfillProfile(input.afterUid) : null;
+    }
+
+    const candidate = candidates.find((entry) => entry.total < input.afterTradeAmount! || (entry.total === input.afterTradeAmount && Number(entry.uid) > Number(input.afterUid)));
+    return candidate ? {
+      uid: candidate.uid,
+      registered_at: candidate.user.registeredAt,
+      first_seen_at: candidate.user.firstSeenAt,
+      cumulative_trade_amount: candidate.total,
+      cumulative_trade_amount_text: String(candidate.total)
+    } : null;
+  }
+
   async listUserDailyTradeHistory(input: { uid: string; startDate: string; endDate: string }): Promise<UserDailyTradeHistoryRow[]> {
     return Array.from(this.tradeSnapshots.values())
       .filter((snapshot) => snapshot.uid === input.uid)
@@ -196,6 +246,14 @@ export class FakeStore implements XtDataStore {
       .filter((snapshot) => snapshot.uid === input.uid)
       .filter((snapshot) => snapshot.tradeDate >= input.startDate && snapshot.tradeDate <= input.endDate)
       .map((snapshot) => snapshot.tradeDate)
+      .sort();
+  }
+
+  async listUserFeeSnapshotDates(input: { uid: string; startDate: string; endDate: string }): Promise<string[]> {
+    return Array.from(this.feeSnapshots.values())
+      .filter((snapshot) => snapshot.uid === input.uid)
+      .filter((snapshot) => snapshot.feeDate >= input.startDate && snapshot.feeDate <= input.endDate)
+      .map((snapshot) => snapshot.feeDate)
       .sort();
   }
 
@@ -253,10 +311,33 @@ export class FakeStore implements XtDataStore {
   }
 
   async upsertUserDailyTradeSnapshot(snapshot: XtUserDailyTradeSnapshot, runId: number, _now?: string): Promise<UpsertResult> {
-    const key = `${snapshot.uid}:${snapshot.tradeDate}`;
-    const existing = this.tradeSnapshots.has(key);
-    this.tradeSnapshots.set(key, { ...snapshot, runId });
-    return { inserted: !existing, updated: existing };
+    const [result] = await this.upsertUserDailyTradeSnapshots([snapshot], runId, _now);
+    return result;
+  }
+
+  async upsertUserFeeSnapshot(snapshot: XtUserFeeSnapshot, runId: number, _now?: string): Promise<UpsertResult> {
+    const [result] = await this.upsertUserFeeSnapshots([snapshot], runId, _now);
+    return result;
+  }
+
+  async upsertUserDailyTradeSnapshots(snapshots: XtUserDailyTradeSnapshot[], runId: number, _now?: string): Promise<UpsertResult[]> {
+    this.tradeSnapshotBatchSizes.push(snapshots.length);
+    return snapshots.map((snapshot) => {
+      const key = `${snapshot.uid}:${snapshot.tradeDate}`;
+      const existing = this.tradeSnapshots.has(key);
+      this.tradeSnapshots.set(key, { ...snapshot, runId });
+      return { inserted: !existing, updated: existing };
+    });
+  }
+
+  async upsertUserFeeSnapshots(snapshots: XtUserFeeSnapshot[], runId: number, _now?: string): Promise<UpsertResult[]> {
+    this.feeSnapshotBatchSizes.push(snapshots.length);
+    return snapshots.map((snapshot) => {
+      const key = `${snapshot.uid}:${snapshot.feeDate}`;
+      const existing = this.feeSnapshots.has(key);
+      this.feeSnapshots.set(key, { ...snapshot, runId });
+      return { inserted: !existing, updated: existing };
+    });
   }
 
   async getSyncState(operation: string): Promise<SyncStateRecord | null> {

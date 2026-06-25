@@ -1,9 +1,10 @@
 import { startDailyBalanceSync } from "./balance-sync";
 import { D1XtDataStore, type XtDataStore } from "./db";
+import { startDailyFeeSync } from "./fee-sync";
 import { UidImporter } from "./importer";
 import { createXtSource, getSourceName } from "./source-factory";
 import { startDailyTradeSync } from "./trade-sync";
-import type { DailyBalanceSyncStartResult, DailyTradeSyncStartResult, ScheduledSyncResult, UserInfoBackfillSyncStartResult } from "./types";
+import type { DailyBalanceSyncStartResult, DailyFeeSyncStartResult, DailyTradeSyncStartResult, ScheduledSyncResult, UserInfoBackfillSyncStartResult } from "./types";
 import { startUserInfoBackfillSync } from "./user-info-sync";
 import type { XtAffiliateUserSource } from "./xt-source";
 
@@ -23,6 +24,13 @@ export async function startScheduledDailyBalanceSync(env: Env): Promise<DailyBal
   return startDailyBalanceSync({
     store: new D1XtDataStore(env.XT_DB),
     queue: env.BALANCE_SYNC_QUEUE
+  });
+}
+
+export async function startScheduledDailyFeeSync(env: Env): Promise<DailyFeeSyncStartResult> {
+  return startDailyFeeSync({
+    store: new D1XtDataStore(env.XT_DB),
+    queue: env.FEE_SYNC_QUEUE
   });
 }
 

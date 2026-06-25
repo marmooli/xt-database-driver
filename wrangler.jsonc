@@ -6,15 +6,21 @@
   "vars": {
     "ENVIRONMENT": "production",
     "XT_SOURCE_KIND": "mcp-http",
-    "XT_API_BASE_URL": "https://xt-api.metagitic.com",
+    "XT_API_BASE_URL": "https://xt-api-proxy.hamed-saffarian.workers.dev",
     "XT_AFFILIATE_USERS_PATH": "/affiliate/users",
     "XT_MCP_URL": "https://xt-api.metagitic.com/mcp",
     "XT_HTTP_METHOD": "GET",
     "UID_SYNC_MAX_PAGES": "5",
     "UID_SYNC_LIMIT": "100",
     "BALANCE_SYNC_CHUNK_LIMIT": "100",
+    "FEE_SYNC_CHUNK_LIMIT": "100",
+    "FEE_BACKFILL_SYNC_DAY_LIMIT": "20",
+    "FEE_BACKFILL_SYNC_FETCH_CONCURRENCY": "2",
     "TRADE_SYNC_CHUNK_LIMIT": "10",
     "TRADE_BACKFILL_SYNC_DAY_LIMIT": "10",
+    "TRADE_BACKFILL_SYNC_FETCH_CONCURRENCY": "1",
+    "TRADE_BACKFILL_SYNC_CONTINUE_DELAY_SECONDS": "5",
+    "TRADE_BACKFILL_SYNC_RATE_LIMIT_RETRY_DELAY_SECONDS": "300",
     "USER_INFO_SYNC_CHUNK_LIMIT": "100"
   },
   "triggers": {
@@ -25,6 +31,14 @@
       {
         "binding": "BALANCE_SYNC_QUEUE",
         "queue": "xt-balance-sync"
+      },
+      {
+        "binding": "FEE_SYNC_QUEUE",
+        "queue": "xt-fee-sync"
+      },
+      {
+        "binding": "FEE_BACKFILL_SYNC_QUEUE",
+        "queue": "xt-fee-backfill-sync"
       },
       {
         "binding": "TRADE_SYNC_QUEUE",
@@ -42,6 +56,16 @@
     "consumers": [
       {
         "queue": "xt-balance-sync",
+        "max_batch_size": 1,
+        "max_batch_timeout": 30
+      },
+      {
+        "queue": "xt-fee-sync",
+        "max_batch_size": 1,
+        "max_batch_timeout": 30
+      },
+      {
+        "queue": "xt-fee-backfill-sync",
         "max_batch_size": 1,
         "max_batch_timeout": 30
       },

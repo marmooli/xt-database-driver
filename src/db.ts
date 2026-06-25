@@ -1,4 +1,4 @@
-import type { ImportCounts, NormalizedXtUser, ReferralCodeRecord, SyncRunRecord, SyncStateRecord, SyncStateUpdate, UpsertResult, UserDailyTradeHistoryRow, UserListSort, UserReferralCodeFilter, UserTradeProfile, XtUserBalance, XtUserBalanceSnapshot, XtUserDailyTradeSnapshot, XtUserInfo, XtUserRecord } from "./types";
+import type { ImportCounts, NormalizedXtUser, ReferralCodeRecord, SyncRunRecord, SyncStateRecord, SyncStateUpdate, TradeBackfillProfile, UpsertResult, UserDailyTradeHistoryRow, UserListSort, UserReferralCodeFilter, UserTradeProfile, XtUserBalance, XtUserBalanceSnapshot, XtUserDailyTradeSnapshot, XtUserFeeSnapshot, XtUserInfo, XtUserRecord } from "./types";
 
 export interface XtDataStore {
   createSyncRun(input: { source: string; operation: string; cursorStart: string | null }): Promise<number>;
@@ -19,8 +19,11 @@ export interface XtDataStore {
   listReferralCodes(input: { limit: number; offset: number }): Promise<ReferralCodeRecord[]>;
   getUserTradeProfile(uid: string): Promise<UserTradeProfile | null>;
   getNextUserTradeProfile(afterUid: string | null): Promise<UserTradeProfile | null>;
+  getTradeBackfillProfile(uid: string): Promise<TradeBackfillProfile | null>;
+  getNextTradeBackfillProfile(input: { afterTradeAmount: number | null; afterUid: string | null }): Promise<TradeBackfillProfile | null>;
   listUserDailyTradeHistory(input: { uid: string; startDate: string; endDate: string }): Promise<UserDailyTradeHistoryRow[]>;
   listUserTradeSnapshotDates(input: { uid: string; startDate: string; endDate: string }): Promise<string[]>;
+  listUserFeeSnapshotDates(input: { uid: string; startDate: string; endDate: string }): Promise<string[]>;
   getUserInfoPendingCount(): Promise<number>;
   listUserInfoSyncCandidates(input: { limit: number }): Promise<string[]>;
   listBalanceSyncCandidates(input: { limit: number }): Promise<string[]>;
@@ -30,6 +33,9 @@ export interface XtDataStore {
   upsertUserBalance(balance: XtUserBalance, runId: number, now: string): Promise<UpsertResult>;
   upsertUserBalanceSnapshot(snapshot: XtUserBalanceSnapshot, runId: number, now: string): Promise<UpsertResult>;
   upsertUserDailyTradeSnapshot(snapshot: XtUserDailyTradeSnapshot, runId: number, now: string): Promise<UpsertResult>;
+  upsertUserDailyTradeSnapshots(snapshots: XtUserDailyTradeSnapshot[], runId: number, now: string): Promise<UpsertResult[]>;
+  upsertUserFeeSnapshot(snapshot: XtUserFeeSnapshot, runId: number, now: string): Promise<UpsertResult>;
+  upsertUserFeeSnapshots(snapshots: XtUserFeeSnapshot[], runId: number, now: string): Promise<UpsertResult[]>;
   getSyncState(operation: string): Promise<SyncStateRecord | null>;
   upsertSyncState(input: SyncStateUpdate): Promise<void>;
   resetSyncState(operation: string): Promise<void>;
@@ -173,6 +179,65 @@ export class D1XtDataStore implements XtDataStore {
     ).bind(uid).first<UserTradeProfile>();
   }
 
+  async getTradeBackfillProfile(uid: string): Promise<TradeBackfillProfile | null> {
+    return await this.db.prepare(
+      `WITH user_totals AS (
+         SELECT u.uid, u.registered_at, u.first_seen_at,
+                ROUND(COALESCE(SUM(t.trade_amount), 0), 8) AS cumulative_trade_amount,
+                CAST(ROUND(COALESCE(SUM(t.trade_amount), 0), 8) AS TEXT) AS cumulative_trade_amount_text
+         FROM xt_users u
+         LEFT JOIN xt_user_trade_daily_snapshots t
+           ON t.uid = u.uid
+         WHERE u.uid = ?
+         GROUP BY u.uid, u.registered_at, u.first_seen_at
+       )
+       SELECT uid, registered_at, first_seen_at, cumulative_trade_amount, cumulative_trade_amount_text
+       FROM user_totals`
+    ).bind(uid).first<TradeBackfillProfile>();
+  }
+
+  async getNextTradeBackfillProfile(input: { afterTradeAmount: number | null; afterUid: string | null }): Promise<TradeBackfillProfile | null> {
+    if (input.afterTradeAmount === null && input.afterUid === null) {
+      return await this.db.prepare(
+        `WITH user_totals AS (
+           SELECT u.uid, u.registered_at, u.first_seen_at,
+                  ROUND(COALESCE(SUM(t.trade_amount), 0), 8) AS cumulative_trade_amount,
+                  CAST(ROUND(COALESCE(SUM(t.trade_amount), 0), 8) AS TEXT) AS cumulative_trade_amount_text
+           FROM xt_users u
+           LEFT JOIN xt_user_trade_daily_snapshots t
+             ON t.uid = u.uid
+           GROUP BY u.uid, u.registered_at, u.first_seen_at
+         )
+         SELECT uid, registered_at, first_seen_at, cumulative_trade_amount, cumulative_trade_amount_text
+         FROM user_totals
+         ORDER BY cumulative_trade_amount DESC, CAST(uid AS INTEGER) ASC
+         LIMIT 1`
+      ).first<TradeBackfillProfile>();
+    }
+
+    if (input.afterTradeAmount === null || input.afterUid === null) {
+      return input.afterUid ? await this.getTradeBackfillProfile(input.afterUid) : null;
+    }
+
+    return await this.db.prepare(
+      `WITH user_totals AS (
+         SELECT u.uid, u.registered_at, u.first_seen_at,
+                ROUND(COALESCE(SUM(t.trade_amount), 0), 8) AS cumulative_trade_amount,
+                CAST(ROUND(COALESCE(SUM(t.trade_amount), 0), 8) AS TEXT) AS cumulative_trade_amount_text
+         FROM xt_users u
+         LEFT JOIN xt_user_trade_daily_snapshots t
+           ON t.uid = u.uid
+         GROUP BY u.uid, u.registered_at, u.first_seen_at
+       )
+       SELECT uid, registered_at, first_seen_at, cumulative_trade_amount, cumulative_trade_amount_text
+       FROM user_totals
+       WHERE cumulative_trade_amount < ?
+          OR (cumulative_trade_amount = ? AND CAST(uid AS INTEGER) > CAST(? AS INTEGER))
+       ORDER BY cumulative_trade_amount DESC, CAST(uid AS INTEGER) ASC
+       LIMIT 1`
+    ).bind(input.afterTradeAmount, input.afterTradeAmount, input.afterUid).first<TradeBackfillProfile>();
+  }
+
   async getNextUserTradeProfile(afterUid: string | null): Promise<UserTradeProfile | null> {
     const query = afterUid
       ? this.db.prepare(
@@ -216,6 +281,19 @@ export class D1XtDataStore implements XtDataStore {
     ).bind(input.uid, input.startDate, input.endDate).all<{ trade_date: string }>();
 
     return (result.results ?? []).map((row) => row.trade_date);
+  }
+
+  async listUserFeeSnapshotDates(input: { uid: string; startDate: string; endDate: string }): Promise<string[]> {
+    const result = await this.db.prepare(
+      `SELECT fee_date
+       FROM xt_user_fee_daily_snapshots
+       WHERE uid = ?
+         AND fee_date >= ?
+         AND fee_date <= ?
+       ORDER BY fee_date ASC`
+    ).bind(input.uid, input.startDate, input.endDate).all<{ fee_date: string }>();
+
+    return (result.results ?? []).map((row) => row.fee_date);
   }
 
   async listUsers(input: {
@@ -421,54 +499,154 @@ export class D1XtDataStore implements XtDataStore {
   }
 
   async upsertUserDailyTradeSnapshot(snapshot: XtUserDailyTradeSnapshot, runId: number, now: string): Promise<UpsertResult> {
-    const existing = await this.db.prepare(
-      "SELECT uid FROM xt_user_trade_daily_snapshots WHERE uid = ? AND trade_date = ?"
-    ).bind(snapshot.uid, snapshot.tradeDate).first<{ uid: string }>();
+    const [result] = await this.upsertUserDailyTradeSnapshots([snapshot], runId, now);
+    return result;
+  }
 
-    if (!existing) {
-      await this.db.prepare(
-        `INSERT INTO xt_user_trade_daily_snapshots (
-          uid, trade_date, role, trade, trade_amount, trade_amount_text,
-          source_start_ms, source_end_ms, captured_at, sync_run_id,
-          created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      ).bind(
-        snapshot.uid,
-        snapshot.tradeDate,
-        snapshot.role,
-        snapshot.trade ? 1 : 0,
-        snapshot.tradeAmount,
-        snapshot.tradeAmountText,
-        snapshot.sourceStartMs,
-        snapshot.sourceEndMs,
-        snapshot.capturedAt,
-        runId,
-        now,
-        now
-      ).run();
-      return { inserted: true, updated: false };
+  async upsertUserDailyTradeSnapshots(snapshots: XtUserDailyTradeSnapshot[], runId: number, now: string): Promise<UpsertResult[]> {
+    if (snapshots.length === 0) {
+      return [];
     }
 
-    await this.db.prepare(
-      `UPDATE xt_user_trade_daily_snapshots
-       SET role = ?, trade = ?, trade_amount = ?, trade_amount_text = ?,
-           source_start_ms = ?, source_end_ms = ?, captured_at = ?,
-           sync_run_id = ?, updated_at = ?
-       WHERE uid = ? AND trade_date = ?`
-    ).bind(
-      snapshot.role,
-      snapshot.trade ? 1 : 0,
-      snapshot.tradeAmount,
-      snapshot.tradeAmountText,
-      snapshot.sourceStartMs,
-      snapshot.sourceEndMs,
-      snapshot.capturedAt,
-      runId,
-      now,
-      snapshot.uid,
-      snapshot.tradeDate
-    ).run();
-    return { inserted: false, updated: true };
+    const existingKeys = await this.getExistingSnapshotKeys(
+      "xt_user_trade_daily_snapshots",
+      "trade_date",
+      snapshots.map((snapshot) => [snapshot.uid, snapshot.tradeDate])
+    );
+    const statements: D1PreparedStatement[] = [];
+    const results: UpsertResult[] = [];
+
+    for (const snapshot of snapshots) {
+      const existing = existingKeys.has(this.snapshotKey(snapshot.uid, snapshot.tradeDate));
+      statements.push(existing
+        ? this.db.prepare(
+          `UPDATE xt_user_trade_daily_snapshots
+           SET role = ?, trade = ?, trade_amount = ?, trade_amount_text = ?,
+               source_start_ms = ?, source_end_ms = ?, captured_at = ?,
+               sync_run_id = ?, updated_at = ?
+           WHERE uid = ? AND trade_date = ?`
+        ).bind(
+          snapshot.role,
+          snapshot.trade ? 1 : 0,
+          snapshot.tradeAmount,
+          snapshot.tradeAmountText,
+          snapshot.sourceStartMs,
+          snapshot.sourceEndMs,
+          snapshot.capturedAt,
+          runId,
+          now,
+          snapshot.uid,
+          snapshot.tradeDate
+        )
+        : this.db.prepare(
+          `INSERT INTO xt_user_trade_daily_snapshots (
+            uid, trade_date, role, trade, trade_amount, trade_amount_text,
+            source_start_ms, source_end_ms, captured_at, sync_run_id,
+            created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        ).bind(
+          snapshot.uid,
+          snapshot.tradeDate,
+          snapshot.role,
+          snapshot.trade ? 1 : 0,
+          snapshot.tradeAmount,
+          snapshot.tradeAmountText,
+          snapshot.sourceStartMs,
+          snapshot.sourceEndMs,
+          snapshot.capturedAt,
+          runId,
+          now,
+          now
+        ));
+      results.push(existing ? { inserted: false, updated: true } : { inserted: true, updated: false });
+    }
+
+    await this.db.batch(statements);
+    return results;
+  }
+
+  async upsertUserFeeSnapshot(snapshot: XtUserFeeSnapshot, runId: number, now: string): Promise<UpsertResult> {
+    const [result] = await this.upsertUserFeeSnapshots([snapshot], runId, now);
+    return result;
+  }
+
+  async upsertUserFeeSnapshots(snapshots: XtUserFeeSnapshot[], runId: number, now: string): Promise<UpsertResult[]> {
+    if (snapshots.length === 0) {
+      return [];
+    }
+
+    const existingKeys = await this.getExistingSnapshotKeys(
+      "xt_user_fee_daily_snapshots",
+      "fee_date",
+      snapshots.map((snapshot) => [snapshot.uid, snapshot.feeDate])
+    );
+    const statements: D1PreparedStatement[] = [];
+    const results: UpsertResult[] = [];
+
+    for (const snapshot of snapshots) {
+      const existing = existingKeys.has(this.snapshotKey(snapshot.uid, snapshot.feeDate));
+      statements.push(existing
+        ? this.db.prepare(
+          `UPDATE xt_user_fee_daily_snapshots
+           SET fee = ?, fee_text = ?, source_start_ms = ?, source_end_ms = ?,
+               captured_at = ?, sync_run_id = ?, updated_at = ?
+           WHERE uid = ? AND fee_date = ?`
+        ).bind(
+          snapshot.fee,
+          snapshot.feeText,
+          snapshot.sourceStartMs,
+          snapshot.sourceEndMs,
+          snapshot.capturedAt,
+          runId,
+          now,
+          snapshot.uid,
+          snapshot.feeDate
+        )
+        : this.db.prepare(
+          `INSERT INTO xt_user_fee_daily_snapshots (
+            uid, fee_date, fee, fee_text, source_start_ms, source_end_ms,
+            captured_at, sync_run_id, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        ).bind(
+          snapshot.uid,
+          snapshot.feeDate,
+          snapshot.fee,
+          snapshot.feeText,
+          snapshot.sourceStartMs,
+          snapshot.sourceEndMs,
+          snapshot.capturedAt,
+          runId,
+          now,
+          now
+        ));
+      results.push(existing ? { inserted: false, updated: true } : { inserted: true, updated: false });
+    }
+
+    await this.db.batch(statements);
+    return results;
+  }
+
+  private async getExistingSnapshotKeys(
+    table: "xt_user_trade_daily_snapshots" | "xt_user_fee_daily_snapshots",
+    dateColumn: "trade_date" | "fee_date",
+    keys: Array<[string, string]>
+  ): Promise<Set<string>> {
+    if (keys.length === 0) {
+      return new Set();
+    }
+
+    const whereClause = keys.map(() => `(uid = ? AND ${dateColumn} = ?)`).join(" OR ");
+    const result = await this.db.prepare(
+      `SELECT uid, ${dateColumn} AS snapshot_date
+       FROM ${table}
+       WHERE ${whereClause}`
+    ).bind(...keys.flatMap(([uid, snapshotDate]) => [uid, snapshotDate])).all<{ uid: string; snapshot_date: string }>();
+
+    return new Set((result.results ?? []).map((row) => this.snapshotKey(row.uid, row.snapshot_date)));
+  }
+
+  private snapshotKey(uid: string, date: string): string {
+    return `${uid}:${date}`;
   }
 
   async getSyncState(operation: string): Promise<SyncStateRecord | null> {

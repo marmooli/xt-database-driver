@@ -1,5 +1,6 @@
 import { BALANCE_DAILY_SYNC_OPERATION, BalanceSyncer, startDailyBalanceSync } from "./balance-sync";
 import { D1XtDataStore } from "./db";
+import { FEE_BACKFILL_SYNC_OPERATION, FEE_DAILY_SYNC_OPERATION, startDailyFeeSync, startFeeBackfillSync } from "./fee-sync";
 import { renderDashboard, renderReferralCodesPage, renderUserTradePage } from "./dashboard";
 import { UidImporter } from "./importer";
 import { createBalanceSource, createUserInfoSource, createXtSource, getSourceName } from "./source-factory";
@@ -98,6 +99,19 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
     return json({ userCount, state });
   }
 
+  if (url.pathname === "/admin/sync/fees" && request.method === "GET") {
+    const unauthorized = requireAdminAuthorization(request, env);
+    if (unauthorized) return unauthorized;
+
+    const store = new D1XtDataStore(env.XT_DB);
+    const [state, userCount] = await Promise.all([
+      store.getSyncState(FEE_DAILY_SYNC_OPERATION),
+      store.getUserCount()
+    ]);
+
+    return json({ userCount, state });
+  }
+
   if (url.pathname === "/admin/sync/balances/start" && request.method === "POST") {
     const unauthorized = requireAdminAuthorization(request, env);
     if (unauthorized) return unauthorized;
@@ -110,6 +124,31 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
     const state = await store.getSyncState(BALANCE_DAILY_SYNC_OPERATION);
 
     return json({ result, state }, { status: 202 });
+  }
+
+  if (url.pathname === "/admin/sync/fees/start" && request.method === "POST") {
+    const unauthorized = requireAdminAuthorization(request, env);
+    if (unauthorized) return unauthorized;
+
+    const store = new D1XtDataStore(env.XT_DB);
+    const result = await startDailyFeeSync({
+      store,
+      queue: env.FEE_SYNC_QUEUE
+    });
+    const state = await store.getSyncState(FEE_DAILY_SYNC_OPERATION);
+
+    return json({ result, state }, { status: 202 });
+  }
+
+  if (url.pathname === "/admin/sync/fees/reset" && request.method === "POST") {
+    const unauthorized = requireAdminAuthorization(request, env);
+    if (unauthorized) return unauthorized;
+
+    const store = new D1XtDataStore(env.XT_DB);
+    await store.resetSyncState(FEE_DAILY_SYNC_OPERATION);
+    const state = await store.getSyncState(FEE_DAILY_SYNC_OPERATION);
+
+    return json({ state });
   }
 
   if (url.pathname === "/admin/sync/trades" && request.method === "GET") {
@@ -138,6 +177,19 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
     return json({ userCount, state });
   }
 
+  if (url.pathname === "/admin/sync/fee-backfill" && request.method === "GET") {
+    const unauthorized = requireAdminAuthorization(request, env);
+    if (unauthorized) return unauthorized;
+
+    const store = new D1XtDataStore(env.XT_DB);
+    const [state, userCount] = await Promise.all([
+      store.getSyncState(FEE_BACKFILL_SYNC_OPERATION),
+      store.getUserCount()
+    ]);
+
+    return json({ userCount, state });
+  }
+
   if (url.pathname === "/admin/sync/trades/start" && request.method === "POST") {
     const unauthorized = requireAdminAuthorization(request, env);
     if (unauthorized) return unauthorized;
@@ -148,6 +200,20 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
       queue: env.TRADE_SYNC_QUEUE
     });
     const state = await store.getSyncState(TRADE_DAILY_SYNC_OPERATION);
+
+    return json({ result, state }, { status: 202 });
+  }
+
+  if (url.pathname === "/admin/sync/fee-backfill/start" && request.method === "POST") {
+    const unauthorized = requireAdminAuthorization(request, env);
+    if (unauthorized) return unauthorized;
+
+    const store = new D1XtDataStore(env.XT_DB);
+    const result = await startFeeBackfillSync({
+      store,
+      queue: env.FEE_BACKFILL_SYNC_QUEUE
+    });
+    const state = await store.getSyncState(FEE_BACKFILL_SYNC_OPERATION);
 
     return json({ result, state }, { status: 202 });
   }

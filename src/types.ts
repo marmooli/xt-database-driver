@@ -110,6 +110,14 @@ export interface UserTradeProfile {
   first_seen_at: string;
 }
 
+export interface TradeBackfillProfile {
+  uid: string;
+  registered_at: number | null;
+  first_seen_at: string;
+  cumulative_trade_amount: number;
+  cumulative_trade_amount_text: string;
+}
+
 export interface UserDailyTradeHistoryRow {
   trade_date: string;
   trade_amount: number;
@@ -156,6 +164,19 @@ export interface XtUserDailyTrade {
 
 export interface XtUserDailyTradeSnapshot extends XtUserDailyTrade {
   tradeDate: string;
+  sourceStartMs: number;
+  sourceEndMs: number;
+  capturedAt: string;
+}
+
+export interface XtUserFee {
+  uid: string;
+  fee: number;
+  feeText: string;
+}
+
+export interface XtUserFeeSnapshot extends XtUserFee {
+  feeDate: string;
   sourceStartMs: number;
   sourceEndMs: number;
   capturedAt: string;
@@ -252,6 +273,53 @@ export interface TradeBackfillSyncChunkResult extends ImportCounts {
 }
 
 export interface TradeBackfillSyncQueueMessage {
+  uid?: string | null;
+  nextDate?: string | null;
+  afterTradeAmount?: number | null;
+  afterUid?: string | null;
+}
+
+export interface DailyFeeSyncStartResult {
+  operation: string;
+  feeDate: string;
+  started: boolean;
+  reason: "started" | "already-running" | "already-complete";
+}
+
+export interface DailyFeeSyncChunkResult extends ImportCounts {
+  operation: string;
+  feeDate: string;
+  runId: number;
+  status: SyncRunStatus;
+  cursorStart: string | null;
+  cursorEnd: string | null;
+  exhausted: boolean;
+}
+
+export interface FeeSyncQueueMessage {
+  feeDate: string;
+  sourceStartMs: number;
+  sourceEndMs: number;
+  afterUid?: string | null;
+}
+
+export interface FeeBackfillSyncStartResult {
+  operation: string;
+  started: boolean;
+  reason: "started" | "already-running";
+}
+
+export interface FeeBackfillSyncChunkResult extends ImportCounts {
+  operation: string;
+  runId: number;
+  status: SyncRunStatus;
+  uid: string | null;
+  cursorDateStart: string | null;
+  cursorDateEnd: string | null;
+  exhausted: boolean;
+}
+
+export interface FeeBackfillSyncQueueMessage {
   uid?: string | null;
   nextDate?: string | null;
   afterUid?: string | null;

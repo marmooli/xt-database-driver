@@ -321,6 +321,18 @@ describe("sync state admin endpoints", () => {
     expect(response.status).toBe(401);
   });
 
+  it("rejects unauthorized daily fee sync start requests", async () => {
+    const response = await handleRequest(
+      new Request("https://example.com/admin/sync/fees/start", { method: "POST" }),
+      {
+        ENVIRONMENT: "production",
+        ADMIN_IMPORT_TOKEN: "secret"
+      } as Env
+    );
+
+    expect(response.status).toBe(401);
+  });
+
   it("rejects unauthorized daily trade sync start requests", async () => {
     const response = await handleRequest(
       new Request("https://example.com/admin/sync/trades/start", { method: "POST" }),
@@ -400,6 +412,52 @@ describe("sync state admin endpoints", () => {
     expect(messages).toHaveLength(1);
     await expect(response.json()).resolves.toMatchObject({
       result: { started: true, operation: "balance-daily-sync" }
+    });
+  });
+
+  it("starts daily fee sync for authorized admins", async () => {
+    const messages: unknown[] = [];
+    const db = {
+      prepare(sql: string) {
+        return {
+          bind() {
+            return this;
+          },
+          async first() {
+            if (sql.includes("SELECT operation")) {
+              return null;
+            }
+            return { count: 10 };
+          },
+          async run() {
+            return { meta: {} };
+          }
+        };
+      }
+    } as unknown as D1Database;
+
+    const response = await handleRequest(
+      new Request("https://example.com/admin/sync/fees/start", {
+        method: "POST",
+        headers: { authorization: "Bearer secret" }
+      }),
+      {
+        XT_DB: db,
+        FEE_SYNC_QUEUE: {
+          async send(message: unknown) {
+            messages.push(message);
+            return {};
+          }
+        },
+        ENVIRONMENT: "production",
+        ADMIN_IMPORT_TOKEN: "secret"
+      } as Env
+    );
+
+    expect(response.status).toBe(202);
+    expect(messages).toHaveLength(1);
+    await expect(response.json()).resolves.toMatchObject({
+      result: { started: true, operation: "fee-daily-sync" }
     });
   });
 
