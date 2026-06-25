@@ -6,7 +6,7 @@ import { UidImporter } from "./importer";
 import { createBalanceSource, createUserInfoSource, createXtSource, getSourceName } from "./source-factory";
 import { UID_SCHEDULED_SYNC_OPERATION } from "./scheduled";
 import { TRADE_BACKFILL_SYNC_OPERATION, TRADE_DAILY_SYNC_OPERATION, addDaysToDateString, completeGermanyDateWindow, previousGermanyDate, startDailyTradeSync, startTradeBackfillSync, toGermanyDate } from "./trade-sync";
-import type { TradeHistoryGrain, UserDailyTradeHistoryRow, UserListSort, UserReferralCodeFilter, UserTradeHistoryPoint } from "./types";
+import type { TradeHistoryGrain, UserDailyTradeHistoryRow, UserListSort, UserReferralCodeFilter, UserTradeHistoryPoint, XtUserRecord } from "./types";
 import { USER_INFO_BACKFILL_SYNC_OPERATION, UserInfoSyncer, startUserInfoBackfillSync } from "./user-info-sync";
 
 export async function handleRequest(request: Request, env: Env): Promise<Response> {
@@ -288,7 +288,7 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
     const sort = parseUserListSort(url.searchParams.get("sort"));
     const referralCodeFilter = parseReferralCodeFilter(url.searchParams);
     const tradeWindow = completeGermanyDateWindow(new Date(), 30);
-    const users = await store.listUsers({
+    const users: XtUserRecord[] = await store.listUsers({
       limit,
       offset,
       sort,

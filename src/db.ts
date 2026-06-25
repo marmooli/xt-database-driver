@@ -374,24 +374,35 @@ export class D1XtDataStore implements XtDataStore {
               : "u.last_seen_at DESC, CAST(u.affiliate_item_id AS INTEGER) DESC";
     const referralWhere = buildReferralCodeWhere(input.referralCodeFilter);
     const result = await this.db.prepare(
-      `SELECT u.uid, u.affiliate_item_id, u.role, u.registered_at, u.first_seen_at,
+      `WITH trade_totals AS (
+         SELECT uid,
+                ROUND(COALESCE(SUM(trade_amount), 0), 8) AS trade_30d_amount,
+                CAST(ROUND(COALESCE(SUM(trade_amount), 0), 8) AS TEXT) AS trade_30d_amount_text
+         FROM xt_user_trade_daily_snapshots
+         WHERE trade_date >= ?
+           AND trade_date <= ?
+         GROUP BY uid
+       ),
+       fee_totals AS (
+         SELECT uid,
+                ROUND(COALESCE(SUM(fee), 0), 8) AS cumulative_fee,
+                CAST(ROUND(COALESCE(SUM(fee), 0), 8) AS TEXT) AS cumulative_fee_text
+         FROM xt_user_fee_daily_snapshots
+         GROUP BY uid
+       )
+       SELECT u.uid, u.affiliate_item_id, u.role, u.registered_at, u.first_seen_at,
               u.register_invite_code, u.last_user_info_sync_at, u.last_seen_at,
               u.last_sync_run_id, u.created_at, u.updated_at,
               b.balance, b.balance_text, b.last_balance_sync_at,
-              COALESCE(SUM(t.trade_amount), 0) AS trade_30d_amount,
-              CAST(COALESCE(SUM(t.trade_amount), 0) AS TEXT) AS trade_30d_amount_text
+              COALESCE(tt.trade_30d_amount, 0) AS trade_30d_amount,
+              COALESCE(tt.trade_30d_amount_text, '0') AS trade_30d_amount_text,
+              COALESCE(ft.cumulative_fee, 0) AS cumulative_fee,
+              COALESCE(ft.cumulative_fee_text, '0') AS cumulative_fee_text
        FROM xt_users u
        LEFT JOIN xt_user_balances b ON b.uid = u.uid
-       LEFT JOIN xt_user_trade_daily_snapshots t
-         ON t.uid = u.uid
-        AND t.trade_date >= ?
-        AND t.trade_date <= ?
+       LEFT JOIN trade_totals tt ON tt.uid = u.uid
+       LEFT JOIN fee_totals ft ON ft.uid = u.uid
        ${referralWhere.sql}
-       GROUP BY u.uid, u.affiliate_item_id, u.role, u.registered_at,
-                u.register_invite_code, u.last_user_info_sync_at,
-                u.first_seen_at, u.last_seen_at, u.last_sync_run_id,
-                u.created_at, u.updated_at, b.balance, b.balance_text,
-                b.last_balance_sync_at
        ORDER BY ${orderBy}
        LIMIT ? OFFSET ?`
     ).bind(input.tradeDateStart, input.tradeDateEnd, ...referralWhere.bindings, input.limit, input.offset).all<XtUserRecord>();

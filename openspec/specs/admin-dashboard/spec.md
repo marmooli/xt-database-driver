@@ -51,6 +51,17 @@ The dashboard SHALL display latest known user balance when available.
 - **WHEN** dashboard user rows include balance data
 - **THEN** the dashboard SHALL show the balance in the user table
 
+### Requirement: Dashboard displays cumulative fee totals
+The dashboard SHALL display each user's cumulative fee total in the main UID table when fee snapshot data is available.
+
+#### Scenario: Fee total data is available
+- **WHEN** dashboard user rows include cumulative fee totals derived from stored fee snapshots
+- **THEN** the dashboard SHALL show the fee total in the user table
+
+#### Scenario: Fee total data is missing
+- **WHEN** a user has no stored fee snapshots
+- **THEN** the dashboard SHALL display a placeholder for the fee total instead of an incorrect value
+
 ### Requirement: Dashboard can sort by balance
 The dashboard SHALL allow admins to sort user rows by balance.
 

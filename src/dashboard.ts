@@ -122,6 +122,8 @@ const DASHBOARD_HTML = String.raw`<!doctype html>
     .error { color: var(--danger); }
     .pill { display: inline-block; padding: 4px 8px; border-radius: 999px; background: #e4f2ef; color: #115e59; font-size: 12px; }
     .amount-link { color: var(--accent); font-weight: 700; text-decoration: none; }
+    .amount-stack { display: flex; flex-direction: column; gap: 4px; }
+    .amount-raw { color: var(--muted); font-size: 12px; line-height: 1.2; }
     .filter-panel {
       display: none;
       margin: 0 0 12px auto;
@@ -211,10 +213,10 @@ const DASHBOARD_HTML = String.raw`<!doctype html>
       </div>
       <table>
         <thead>
-          <tr><th>UID</th><th><button id="referralFilterBtn" class="th-toggle" type="button">Referral Code</button></th><th><button id="registrationModeBtn" class="th-toggle" type="button">Registered Date</button></th><th>Balance</th><th>30d Trade Volume</th></tr>
+          <tr><th>UID</th><th><button id="referralFilterBtn" class="th-toggle" type="button">Referral Code</button></th><th><button id="registrationModeBtn" class="th-toggle" type="button">Registered Date</button></th><th>Balance</th><th>30d Trade Volume</th><th>Cumulative Fee</th></tr>
         </thead>
         <tbody id="usersBody">
-          <tr><td colspan="5">No data loaded.</td></tr>
+          <tr><td colspan="6">No data loaded.</td></tr>
         </tbody>
       </table>
       <div class="toolbar" style="margin-top:12px">
@@ -348,8 +350,8 @@ const DASHBOARD_HTML = String.raw`<!doctype html>
     }
     function renderUsers() {
       el("usersBody").innerHTML = state.currentUsers.length
-        ? state.currentUsers.map((user) => "<tr><td>" + user.uid + "</td><td>" + fmt(user.register_invite_code) + "</td><td>" + fmtRegistration(user) + "</td><td>" + fmtAmount(user.balance) + "</td><td><a class=\"amount-link\" href=\"/users/" + encodeURIComponent(user.uid) + "/trade\">" + fmtAmount(user.trade_30d_amount) + "</a></td></tr>").join("")
-        : '<tr><td colspan="5">No rows on this page.</td></tr>';
+        ? state.currentUsers.map((user) => "<tr><td>" + user.uid + "</td><td>" + fmt(user.register_invite_code) + "</td><td>" + fmtRegistration(user) + "</td><td>" + fmtAmount(user.balance) + "</td><td><a class=\"amount-link\" href=\"/users/" + encodeURIComponent(user.uid) + "/trade\">" + fmtAmount(user.trade_30d_amount) + "</a></td><td><div class=\"amount-stack\"><span>" + fmtAmount(user.cumulative_fee) + "</span><span class=\"amount-raw\">" + fmt(user.cumulative_fee_text) + "</span></div></td></tr>").join("")
+        : '<tr><td colspan="6">No rows on this page.</td></tr>';
     }
     async function load() {
       setMessage("Loading...");

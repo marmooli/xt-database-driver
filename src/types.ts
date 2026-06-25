@@ -90,6 +90,8 @@ export interface XtUserRecord {
   last_balance_sync_at: string | null;
   trade_30d_amount: number;
   trade_30d_amount_text: string;
+  cumulative_fee: number;
+  cumulative_fee_text: string;
 }
 
 export interface ReferralCodeRecord {

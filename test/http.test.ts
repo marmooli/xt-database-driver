@@ -47,7 +47,9 @@ describe("sync state admin endpoints", () => {
 
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toContain("text/html");
-    await expect(response.text()).resolves.toContain("XT Data Dashboard");
+    const html = await response.text();
+    expect(html).toContain("XT Data Dashboard");
+    expect(html).toContain("Cumulative Fee");
   });
 
   it("serves the referral codes page", async () => {
@@ -105,6 +107,8 @@ describe("sync state admin endpoints", () => {
           },
           async all() {
             expect(sql).toContain("FROM xt_users");
+            expect(sql).toContain("xt_user_fee_daily_snapshots");
+            expect(sql).toContain("cumulative_fee");
             expect(sql).toContain("u.registered_at DESC");
             return {
               results: [{
@@ -123,7 +127,9 @@ describe("sync state admin endpoints", () => {
                 balance_text: "10",
                 last_balance_sync_at: "c",
                 trade_30d_amount: 123,
-                trade_30d_amount_text: "123"
+                trade_30d_amount_text: "123",
+                cumulative_fee: 45,
+                cumulative_fee_text: "45"
               }]
             };
           }
@@ -146,7 +152,7 @@ describe("sync state admin endpoints", () => {
     await expect(response.json()).resolves.toMatchObject({
       limit: 100,
       tradeWindow: { startDate: expect.any(String), endDate: expect.any(String) },
-      users: [{ uid: "100", trade_30d_amount: 123 }]
+      users: [{ uid: "100", trade_30d_amount: 123, cumulative_fee: 45 }]
     });
   });
 

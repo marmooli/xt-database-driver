@@ -146,7 +146,9 @@ export class FakeStore implements XtDataStore {
           balance_text: balance?.balanceText ?? null,
           last_balance_sync_at: balance?.lastBalanceSyncAt ?? null,
           trade_30d_amount: this.tradeTotal(uid),
-          trade_30d_amount_text: String(this.tradeTotal(uid))
+          trade_30d_amount_text: String(this.tradeTotal(uid)),
+          cumulative_fee: this.feeTotal(uid),
+          cumulative_fee_text: String(this.feeTotal(uid))
         };
       });
   }
