@@ -1,9 +1,7 @@
 ## Purpose
 
 Provide the Cloudflare D1-backed foundation for importing, storing, and operationally tracking XT-derived user UID data.
-
 ## Requirements
-
 ### Requirement: D1 user catalog stores imported XT UIDs
 The system SHALL store imported XT affiliate users in a Cloudflare D1 user catalog keyed by XT UID.
 
@@ -274,11 +272,15 @@ The system SHALL process daily trade sync work through bounded queue chunks.
 - **THEN** the system SHALL store the next cursor and enqueue another chunk
 
 ### Requirement: Historical trade volume backfill uses bounded queue chunks
-The system SHALL backfill missing per-user daily trade-volume snapshots through bounded queue chunks.
+The system SHALL backfill missing per-user daily trade-volume snapshots through bounded queue chunks and SHALL respect the heavy-backfill serialization guardrails.
 
 #### Scenario: Admin starts historical trade backfill
-- **WHEN** an authorized admin starts historical trade-volume backfill
+- **WHEN** an authorized admin starts historical trade-volume backfill while fee history backfill is not running
 - **THEN** the system SHALL mark the backfill as running and enqueue the first chunk
+
+#### Scenario: Admin starts trade backfill while fee backfill is running
+- **WHEN** an authorized admin starts historical trade-volume backfill while fee history backfill is running
+- **THEN** the system SHALL not enqueue a duplicate first chunk and SHALL report that a heavy backfill is already running
 
 #### Scenario: Backfill processes missing dates
 - **WHEN** a backfill chunk reaches a UID and Germany-local trade date without an existing snapshot
@@ -291,3 +293,41 @@ The system SHALL backfill missing per-user daily trade-volume snapshots through 
 #### Scenario: Backfill continues across dates and users
 - **WHEN** a backfill chunk reaches its configured day limit before all historical dates are checked
 - **THEN** the system SHALL enqueue a follow-up chunk for the next date or next UID
+
+### Requirement: Trade ingestion uses the signed HTTP proxy route
+The system SHALL fetch user deposit and trading data for trade sync from the direct signed HTTP proxy route rather than from the MCP transport.
+
+#### Scenario: Daily trade sync fetches through the proxy route
+- **WHEN** the daily trade sync requests user deposit/trading data for a UID and Germany-local day
+- **THEN** the system SHALL call the signed HTTP proxy route and parse the returned trade data
+
+#### Scenario: Historical trade backfill fetches through the proxy route
+- **WHEN** the historical trade backfill requests user deposit/trading data for a UID and Germany-local date
+- **THEN** the system SHALL call the signed HTTP proxy route and parse the returned trade data
+
+#### Scenario: Trade source keeps the same stored semantics
+- **WHEN** trade data is fetched through the signed HTTP proxy route
+- **THEN** the system SHALL continue storing the same trade amount, trade flag, source time range, and daily snapshot semantics as before
+
+### Requirement: Historical trade backfill prioritizes higher cumulative trade volume
+The system SHALL choose the next historical trade backfill user by descending cumulative trade volume stored in the database.
+
+#### Scenario: Backfill starts from the highest-volume user
+- **WHEN** an authorized admin starts historical trade-volume backfill
+- **THEN** the system SHALL enqueue the user with the highest cumulative stored trade volume first
+
+#### Scenario: Backfill continues by descending cumulative volume
+- **WHEN** a historical trade backfill chunk completes a user and there are more users to process
+- **THEN** the system SHALL continue with the next user whose cumulative stored trade volume is lower than the last processed user
+
+### Requirement: Historical trade backfill remains deterministic for tied volumes
+The system SHALL break ties in historical trade backfill order by ascending UID so the ordering remains deterministic.
+
+#### Scenario: Two users have the same cumulative trade volume
+- **WHEN** the system selects between users with equal cumulative stored trade volume
+- **THEN** the system SHALL choose the user with the lower UID first
+
+#### Scenario: A user has no stored trade volume
+- **WHEN** the system encounters users with no stored trade snapshots yet
+- **THEN** the system SHALL treat them as zero-volume users and place them after users with positive cumulative trade volume
+
