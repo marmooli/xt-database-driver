@@ -1,8 +1,7 @@
 import type { XtDataStore } from "./db";
-import type { DailyFeeSyncChunkResult, DailyFeeSyncStartResult, FeeBackfillSyncChunkResult, FeeBackfillSyncQueueMessage, FeeBackfillSyncStartResult, FeeSyncQueueMessage, XtUserFeeSnapshot } from "./types";
+import type { DailyFeeSyncChunkResult, DailyFeeSyncStartResult, FeeBackfillProfile, FeeBackfillSyncChunkResult, FeeBackfillSyncQueueMessage, FeeBackfillSyncStartResult, FeeSyncQueueMessage, XtUserFeeSnapshot } from "./types";
 import type { XtUserFeeSource } from "./xt-source";
 import { addDaysToDateString, germanyDateRangeToUtcMs, previousGermanyDate, toGermanyDate } from "./trade-sync";
-import type { UserTradeProfile } from "./types";
 import { canStartHeavyBackfill, clampHeavyBackfillDayLimit, clampHeavyBackfillFetchConcurrency, mapWithConcurrency } from "./heavy-backfill";
 
 export const FEE_DAILY_SYNC_OPERATION = "fee-daily-sync";
@@ -179,14 +178,14 @@ export async function startFeeBackfillSync(input: {
 
   await input.store.upsertSyncState({
     operation: FEE_BACKFILL_SYNC_OPERATION,
-    nextCursor: null,
+    nextCursor: state?.next_cursor ?? null,
     status: "running",
     lastRunId: state?.last_run_id ?? null,
     lastError: null,
     lastStartedAt: now.toISOString(),
     lastFinishedAt: null
   });
-  await input.queue.send({});
+  await input.queue.send(parseFeeBackfillCursor(state?.next_cursor ?? null));
 
   return { operation: FEE_BACKFILL_SYNC_OPERATION, started: true, reason: "started" };
 }
@@ -203,13 +202,21 @@ export class FeeBackfillSyncer {
     const boundedDayLimit = clampHeavyBackfillDayLimit(dayLimit);
     const boundedFetchConcurrency = clampHeavyBackfillFetchConcurrency(fetchConcurrency);
     const profile = message.uid
-      ? await this.store.getUserTradeProfile(message.uid)
-      : await this.store.getNextUserTradeProfile(message.afterUid ?? null);
+      ? await this.store.getFeeBackfillProfile(message.uid)
+      : await this.store.getNextFeeBackfillProfile({
+        afterFeeAmount: message.afterFeeAmount ?? null,
+        afterUid: message.afterUid ?? null
+      });
     const cursorDateStart = profile ? message.nextDate ?? getFeeBackfillStartDate(profile) : null;
+    const cursorStart = profile
+      ? message.uid
+        ? formatFeeBackfillCursor(profile, cursorDateStart)
+        : formatFeeBackfillSelectionCursor(message.afterFeeAmount ?? null, message.afterUid ?? null)
+      : null;
     const runId = await this.store.createSyncRun({
       source: this.sourceName,
       operation: FEE_BACKFILL_SYNC_OPERATION,
-      cursorStart: profile?.uid ?? message.afterUid ?? null
+      cursorStart
     });
     const counts = { processed: 0, inserted: 0, updated: 0, skipped: 0 };
 
@@ -223,10 +230,10 @@ export class FeeBackfillSyncer {
       if (cursorDateStart > endDate) {
         await this.store.finishSyncRun(runId, {
           status: "success",
-          cursorEnd: `${profile.uid}:${cursorDateStart}`,
+          cursorEnd: formatFeeBackfillCursor(profile, cursorDateStart),
           ...counts
         });
-        await this.enqueueNextUserOrFinish(profile.uid, runId, counts);
+        await this.enqueueNextUserOrFinish(profile, runId, counts);
         return this.emptyResult(runId, profile.uid, cursorDateStart, false, counts);
       }
 
@@ -281,16 +288,16 @@ export class FeeBackfillSyncer {
 
       await this.store.finishSyncRun(runId, {
         status: "success",
-        cursorEnd: `${profile.uid}:${cursorDateEnd}`,
+        cursorEnd: formatFeeBackfillCursor(profile, cursorDateEnd),
         ...counts
       });
 
       const nextDate = addDaysToDateString(cursorDateEnd, 1);
       if (nextDate <= endDate) {
-        await this.queue.send({ uid: profile.uid, nextDate, afterUid: profile.uid });
+        await this.queue.send({ uid: profile.uid, nextDate, afterFeeAmount: profile.cumulative_fee, afterUid: profile.uid });
         await this.store.upsertSyncState({
           operation: FEE_BACKFILL_SYNC_OPERATION,
-          nextCursor: `${profile.uid}:${nextDate}`,
+          nextCursor: formatFeeBackfillCursor(profile, nextDate),
           status: "running",
           lastRunId: runId,
           lastError: null
@@ -307,7 +314,7 @@ export class FeeBackfillSyncer {
         };
       }
 
-      const exhausted = await this.enqueueNextUserOrFinish(profile.uid, runId, counts);
+      const exhausted = await this.enqueueNextUserOrFinish(profile, runId, counts);
       return {
         operation: FEE_BACKFILL_SYNC_OPERATION,
         runId,
@@ -321,13 +328,13 @@ export class FeeBackfillSyncer {
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       await this.store.failSyncRun(runId, {
-        cursorEnd: profile?.uid ?? null,
+        cursorEnd: cursorStart,
         errorMessage,
         ...counts
       });
       await this.store.upsertSyncState({
         operation: FEE_BACKFILL_SYNC_OPERATION,
-        nextCursor: profile?.uid ?? message.afterUid ?? null,
+        nextCursor: cursorStart,
         status: "failed",
         lastRunId: runId,
         lastError: errorMessage,
@@ -337,8 +344,11 @@ export class FeeBackfillSyncer {
     }
   }
 
-  private async enqueueNextUserOrFinish(uid: string, runId: number, counts: { processed: number; inserted: number; updated: number; skipped: number }): Promise<boolean> {
-    const nextProfile = await this.store.getNextUserTradeProfile(uid);
+  private async enqueueNextUserOrFinish(profile: FeeBackfillProfile, runId: number, counts: { processed: number; inserted: number; updated: number; skipped: number }): Promise<boolean> {
+    const nextProfile = await this.store.getNextFeeBackfillProfile({
+      afterFeeAmount: profile.cumulative_fee,
+      afterUid: profile.uid
+    });
     if (!nextProfile) {
       await this.store.upsertSyncState({
         operation: FEE_BACKFILL_SYNC_OPERATION,
@@ -352,10 +362,10 @@ export class FeeBackfillSyncer {
     }
 
     const startDate = getFeeBackfillStartDate(nextProfile);
-    await this.queue.send({ uid: nextProfile.uid, nextDate: startDate, afterUid: uid });
+    await this.queue.send({ uid: nextProfile.uid, nextDate: startDate, afterFeeAmount: profile.cumulative_fee, afterUid: profile.uid });
     await this.store.upsertSyncState({
       operation: FEE_BACKFILL_SYNC_OPERATION,
-      nextCursor: `${nextProfile.uid}:${startDate}`,
+      nextCursor: formatFeeBackfillSelectionCursor(profile.cumulative_fee, profile.uid),
       status: "running",
       lastRunId: runId,
       lastError: null
@@ -393,10 +403,34 @@ export class FeeBackfillSyncer {
   }
 }
 
-function getFeeBackfillStartDate(profile: UserTradeProfile): string {
+function getFeeBackfillStartDate(profile: FeeBackfillProfile): string {
   return profile.registered_at
     ? toGermanyDate(new Date(profile.registered_at))
     : profile.first_seen_at.slice(0, 10);
+}
+
+function formatFeeBackfillCursor(profile: { uid: string; cumulative_fee_text: string }, nextDate: string | null): string {
+  return nextDate ? `${profile.cumulative_fee_text}:${profile.uid}:${nextDate}` : `${profile.cumulative_fee_text}:${profile.uid}`;
+}
+
+function formatFeeBackfillSelectionCursor(afterFeeAmount: number | null, afterUid: string | null): string | null {
+  if (afterFeeAmount === null && afterUid === null) return null;
+  return `${afterFeeAmount ?? 0}:${afterUid ?? ""}`;
+}
+
+export function parseFeeBackfillCursor(cursor: string | null): FeeBackfillSyncQueueMessage {
+  if (!cursor) return {};
+
+  const [amountText, uid, nextDate] = cursor.split(":");
+  if (!amountText || !uid) return {};
+
+  if (nextDate) {
+    return { uid, nextDate };
+  }
+
+  const afterFeeAmount = Number(amountText);
+  if (!Number.isFinite(afterFeeAmount)) return {};
+  return { afterFeeAmount, afterUid: uid };
 }
 
 function minDate(a: string, b: string): string {

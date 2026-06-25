@@ -86,6 +86,74 @@ describe("fee history backfill", () => {
     expect(queue.messages).toEqual([{}]);
   });
 
+  it("resumes a failed fee backfill from its stored cursor", async () => {
+    const store = new FakeStore();
+    const queue = new FakeFeeBackfillQueue();
+    await store.upsertSyncState({
+      operation: "fee-history-backfill-sync",
+      nextCursor: "42.5:6117973230304",
+      status: "failed",
+      lastRunId: 1,
+      lastError: "XT fee source returned HTTP 429",
+      lastStartedAt: new Date("2026-06-24T02:00:00.000Z").toISOString(),
+      lastFinishedAt: new Date("2026-06-24T02:05:00.000Z").toISOString()
+    });
+
+    const result = await startFeeBackfillSync({ store, queue, now: new Date("2026-06-24T02:10:00.000Z") });
+
+    expect(result).toMatchObject({ started: true, reason: "started" });
+    expect(queue.messages).toEqual([{ afterFeeAmount: 42.5, afterUid: "6117973230304" }]);
+    expect((await store.getSyncState("fee-history-backfill-sync"))?.next_cursor).toBe("42.5:6117973230304");
+  });
+
+  it("prioritizes higher cumulative fee, breaks ties by uid, and places zero-fee users last", async () => {
+    const store = new FakeStore();
+    await store.upsertUser({ uid: "100", affiliateItemId: "1", role: "DIRECTOR", registeredAt: Date.UTC(2026, 5, 23) }, 1, "now");
+    await store.upsertUser({ uid: "200", affiliateItemId: "2", role: "DIRECTOR", registeredAt: Date.UTC(2026, 5, 23) }, 1, "now");
+    await store.upsertUser({ uid: "300", affiliateItemId: "3", role: "DIRECTOR", registeredAt: Date.UTC(2026, 5, 23) }, 1, "now");
+    await store.upsertUserFeeSnapshot({
+      uid: "200",
+      fee: 10,
+      feeText: "10",
+      feeDate: "2026-06-20",
+      sourceStartMs: 0,
+      sourceEndMs: 0,
+      capturedAt: "now"
+    }, 1, "now");
+    await store.upsertUserFeeSnapshot({
+      uid: "200",
+      fee: 10,
+      feeText: "10",
+      feeDate: "2026-06-21",
+      sourceStartMs: 0,
+      sourceEndMs: 0,
+      capturedAt: "now"
+    }, 1, "now");
+    await store.upsertUserFeeSnapshot({
+      uid: "300",
+      fee: 20,
+      feeText: "20",
+      feeDate: "2026-06-20",
+      sourceStartMs: 0,
+      sourceEndMs: 0,
+      capturedAt: "now"
+    }, 1, "now");
+    const queue = new FakeFeeBackfillQueue();
+    const syncer = new FeeBackfillSyncer(feeSource(), store, queue, "test-source");
+
+    const first = await syncer.syncChunk({}, 100);
+    const second = await syncer.syncChunk(queue.messages[0], 100);
+    const third = await syncer.syncChunk(queue.messages[1], 100);
+
+    expect(first.uid).toBe("200");
+    expect(second.uid).toBe("300");
+    expect(third.uid).toBe("100");
+    expect(queue.messages).toEqual([
+      { uid: "300", nextDate: "2026-06-23", afterFeeAmount: 20, afterUid: "200" },
+      { uid: "100", nextDate: "2026-06-23", afterFeeAmount: 20, afterUid: "300" }
+    ]);
+  });
+
   it("backfills missing daily fee snapshots and continues the same user", async () => {
     const store = new FakeStore();
     await store.upsertUser({ uid: "100", affiliateItemId: "1", role: "DIRECTOR", registeredAt: Date.UTC(2026, 5, 21) }, 1, "now");
@@ -105,7 +173,7 @@ describe("fee history backfill", () => {
 
     expect(result).toMatchObject({ uid: "100", processed: 1, skipped: 1, inserted: 1, exhausted: false });
     expect(store.feeSnapshots.get("100:2026-06-22")).toMatchObject({ fee: 100 });
-    expect(queue.messages).toEqual([{ uid: "100", nextDate: "2026-06-23", afterUid: "100" }]);
+    expect(queue.messages).toEqual([{ uid: "100", nextDate: "2026-06-23", afterFeeAmount: 0, afterUid: "100" }]);
   });
 });
 
@@ -118,9 +186,9 @@ class FakeFeeQueue implements FeeSyncQueue {
 }
 
 class FakeFeeBackfillQueue implements FeeBackfillSyncQueue {
-  messages: Array<{ uid?: string | null; nextDate?: string | null; afterUid?: string | null }> = [];
+  messages: Array<{ uid?: string | null; nextDate?: string | null; afterFeeAmount?: number | null; afterUid?: string | null }> = [];
 
-  async send(message: { uid?: string | null; nextDate?: string | null; afterUid?: string | null }): Promise<void> {
+  async send(message: { uid?: string | null; nextDate?: string | null; afterFeeAmount?: number | null; afterUid?: string | null }): Promise<void> {
     this.messages.push(message);
   }
 }

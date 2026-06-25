@@ -118,6 +118,14 @@ export interface TradeBackfillProfile {
   cumulative_trade_amount_text: string;
 }
 
+export interface FeeBackfillProfile {
+  uid: string;
+  registered_at: number | null;
+  first_seen_at: string;
+  cumulative_fee: number;
+  cumulative_fee_text: string;
+}
+
 export interface UserDailyTradeHistoryRow {
   trade_date: string;
   trade_amount: number;
@@ -322,6 +330,7 @@ export interface FeeBackfillSyncChunkResult extends ImportCounts {
 export interface FeeBackfillSyncQueueMessage {
   uid?: string | null;
   nextDate?: string | null;
+  afterFeeAmount?: number | null;
   afterUid?: string | null;
 }
 

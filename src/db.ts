@@ -1,4 +1,4 @@
-import type { ImportCounts, NormalizedXtUser, ReferralCodeRecord, SyncRunRecord, SyncStateRecord, SyncStateUpdate, TradeBackfillProfile, UpsertResult, UserDailyTradeHistoryRow, UserListSort, UserReferralCodeFilter, UserTradeProfile, XtUserBalance, XtUserBalanceSnapshot, XtUserDailyTradeSnapshot, XtUserFeeSnapshot, XtUserInfo, XtUserRecord } from "./types";
+import type { FeeBackfillProfile, ImportCounts, NormalizedXtUser, ReferralCodeRecord, SyncRunRecord, SyncStateRecord, SyncStateUpdate, TradeBackfillProfile, UpsertResult, UserDailyTradeHistoryRow, UserListSort, UserReferralCodeFilter, UserTradeProfile, XtUserBalance, XtUserBalanceSnapshot, XtUserDailyTradeSnapshot, XtUserFeeSnapshot, XtUserInfo, XtUserRecord } from "./types";
 
 export interface XtDataStore {
   createSyncRun(input: { source: string; operation: string; cursorStart: string | null }): Promise<number>;
@@ -21,6 +21,8 @@ export interface XtDataStore {
   getNextUserTradeProfile(afterUid: string | null): Promise<UserTradeProfile | null>;
   getTradeBackfillProfile(uid: string): Promise<TradeBackfillProfile | null>;
   getNextTradeBackfillProfile(input: { afterTradeAmount: number | null; afterUid: string | null }): Promise<TradeBackfillProfile | null>;
+  getFeeBackfillProfile(uid: string): Promise<FeeBackfillProfile | null>;
+  getNextFeeBackfillProfile(input: { afterFeeAmount: number | null; afterUid: string | null }): Promise<FeeBackfillProfile | null>;
   listUserDailyTradeHistory(input: { uid: string; startDate: string; endDate: string }): Promise<UserDailyTradeHistoryRow[]>;
   listUserTradeSnapshotDates(input: { uid: string; startDate: string; endDate: string }): Promise<string[]>;
   listUserFeeSnapshotDates(input: { uid: string; startDate: string; endDate: string }): Promise<string[]>;
@@ -236,6 +238,61 @@ export class D1XtDataStore implements XtDataStore {
        ORDER BY cumulative_trade_amount DESC, CAST(uid AS INTEGER) ASC
        LIMIT 1`
     ).bind(input.afterTradeAmount, input.afterTradeAmount, input.afterUid).first<TradeBackfillProfile>();
+  }
+
+  async getFeeBackfillProfile(uid: string): Promise<FeeBackfillProfile | null> {
+    return await this.db.prepare(
+      `SELECT uid, registered_at, first_seen_at,
+              ROUND(COALESCE(SUM(f.fee), 0), 8) AS cumulative_fee,
+              CAST(ROUND(COALESCE(SUM(f.fee), 0), 8) AS TEXT) AS cumulative_fee_text
+       FROM xt_users u
+       LEFT JOIN xt_user_fee_daily_snapshots f
+         ON f.uid = u.uid
+       WHERE u.uid = ?
+       GROUP BY u.uid, u.registered_at, u.first_seen_at`
+    ).bind(uid).first<FeeBackfillProfile>();
+  }
+
+  async getNextFeeBackfillProfile(input: { afterFeeAmount: number | null; afterUid: string | null }): Promise<FeeBackfillProfile | null> {
+    if (input.afterFeeAmount === null && input.afterUid === null) {
+      return await this.db.prepare(
+        `WITH user_totals AS (
+           SELECT u.uid, u.registered_at, u.first_seen_at,
+                  ROUND(COALESCE(SUM(f.fee), 0), 8) AS cumulative_fee,
+                  CAST(ROUND(COALESCE(SUM(f.fee), 0), 8) AS TEXT) AS cumulative_fee_text
+           FROM xt_users u
+           LEFT JOIN xt_user_fee_daily_snapshots f
+             ON f.uid = u.uid
+           GROUP BY u.uid, u.registered_at, u.first_seen_at
+         )
+         SELECT uid, registered_at, first_seen_at, cumulative_fee, cumulative_fee_text
+         FROM user_totals
+         ORDER BY cumulative_fee DESC, CAST(uid AS INTEGER) ASC
+         LIMIT 1`
+      ).first<FeeBackfillProfile>();
+    }
+
+    if (input.afterFeeAmount === null || input.afterUid === null) {
+      return input.afterUid ? await this.getFeeBackfillProfile(input.afterUid) : null;
+    }
+
+    return await this.db.prepare(
+      `WITH user_totals AS (
+         SELECT u.uid, u.registered_at, u.first_seen_at,
+                ROUND(COALESCE(SUM(f.fee), 0), 8) AS cumulative_fee,
+                CAST(ROUND(COALESCE(SUM(f.fee), 0), 8) AS TEXT) AS cumulative_fee_text
+         FROM xt_users u
+         LEFT JOIN xt_user_fee_daily_snapshots f
+           ON f.uid = u.uid
+         GROUP BY u.uid, u.registered_at, u.first_seen_at
+       )
+       SELECT uid, registered_at, first_seen_at, cumulative_fee, cumulative_fee_text
+       FROM user_totals
+       WHERE cumulative_fee < ?
+          OR (cumulative_fee = ? AND CAST(uid AS INTEGER) > CAST(? AS INTEGER))
+       ORDER BY cumulative_fee DESC, CAST(uid AS INTEGER) ASC
+       LIMIT 1`
+    ).bind(input.afterFeeAmount, input.afterFeeAmount, input.afterUid).first<FeeBackfillProfile>();
   }
 
   async getNextUserTradeProfile(afterUid: string | null): Promise<UserTradeProfile | null> {

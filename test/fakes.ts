@@ -1,5 +1,5 @@
 import type { XtDataStore } from "../src/db";
-import type { ImportCounts, NormalizedXtUser, SyncRunRecord, SyncStateRecord, SyncStateUpdate, TradeBackfillProfile, UpsertResult, UserDailyTradeHistoryRow, UserListSort, UserReferralCodeFilter, UserTradeProfile, XtUserBalance, XtUserBalanceSnapshot, XtUserDailyTradeSnapshot, XtUserFeeSnapshot, XtUserInfo } from "../src/types";
+import type { FeeBackfillProfile, ImportCounts, NormalizedXtUser, SyncRunRecord, SyncStateRecord, SyncStateUpdate, TradeBackfillProfile, UpsertResult, UserDailyTradeHistoryRow, UserListSort, UserReferralCodeFilter, UserTradeProfile, XtUserBalance, XtUserBalanceSnapshot, XtUserDailyTradeSnapshot, XtUserFeeSnapshot, XtUserInfo } from "../src/types";
 import type { FetchAffiliateUsersParams, XtAffiliateUsersPage } from "../src/types";
 import type { XtAffiliateUserSource } from "../src/xt-source";
 
@@ -195,6 +195,53 @@ export class FakeStore implements XtDataStore {
     };
   }
 
+  async getFeeBackfillProfile(uid: string): Promise<FeeBackfillProfile | null> {
+    const user = this.users.get(uid);
+    if (!user) return null;
+
+    return {
+      uid,
+      registered_at: user.registeredAt,
+      first_seen_at: user.firstSeenAt,
+      cumulative_fee: this.feeTotal(uid),
+      cumulative_fee_text: String(this.feeTotal(uid))
+    };
+  }
+
+  async getNextFeeBackfillProfile(input: { afterFeeAmount: number | null; afterUid: string | null }): Promise<FeeBackfillProfile | null> {
+    const candidates = Array.from(this.users.keys())
+      .map((uid) => ({
+        uid,
+        user: this.users.get(uid)!,
+        total: this.feeTotal(uid)
+      }))
+      .sort((a, b) => b.total - a.total || Number(a.uid) - Number(b.uid));
+
+    if (input.afterFeeAmount === null && input.afterUid === null) {
+      const candidate = candidates[0];
+      return candidate ? {
+        uid: candidate.uid,
+        registered_at: candidate.user.registeredAt,
+        first_seen_at: candidate.user.firstSeenAt,
+        cumulative_fee: candidate.total,
+        cumulative_fee_text: String(candidate.total)
+      } : null;
+    }
+
+    if (input.afterFeeAmount === null || input.afterUid === null) {
+      return input.afterUid ? await this.getFeeBackfillProfile(input.afterUid) : null;
+    }
+
+    const candidate = candidates.find((entry) => entry.total < input.afterFeeAmount! || (entry.total === input.afterFeeAmount && Number(entry.uid) > Number(input.afterUid)));
+    return candidate ? {
+      uid: candidate.uid,
+      registered_at: candidate.user.registeredAt,
+      first_seen_at: candidate.user.firstSeenAt,
+      cumulative_fee: candidate.total,
+      cumulative_fee_text: String(candidate.total)
+    } : null;
+  }
+
   async getNextTradeBackfillProfile(input: { afterTradeAmount: number | null; afterUid: string | null }): Promise<TradeBackfillProfile | null> {
     const candidates = Array.from(this.users.keys())
       .map((uid) => ({
@@ -382,5 +429,11 @@ export class FakeStore implements XtDataStore {
     return Array.from(this.tradeSnapshots.values())
       .filter((snapshot) => snapshot.uid === uid)
       .reduce((total, snapshot) => total + snapshot.tradeAmount, 0);
+  }
+
+  private feeTotal(uid: string): number {
+    return Array.from(this.feeSnapshots.values())
+      .filter((snapshot) => snapshot.uid === uid)
+      .reduce((total, snapshot) => total + snapshot.fee, 0);
   }
 }
