@@ -222,6 +222,19 @@ export class TradeBackfillSyncer {
         return this.emptyResult(runId, null, null, true, counts);
       }
 
+      if (message.uid && profile.completed_through_date && profile.completed_through_date >= currentTargetDate) {
+        await this.store.finishSyncRun(runId, {
+          status: "success",
+          cursorEnd: cursorStart,
+          ...counts
+        });
+        const state = await this.store.getSyncState(TRADE_BACKFILL_SYNC_OPERATION);
+        const exhausted = state?.next_cursor === cursorStart
+          ? await this.enqueueNextUserOrFinish(profile, runId, counts, boundedContinueDelaySeconds, currentTargetDate)
+          : false;
+        return this.emptyResult(runId, profile.uid, cursorDateStart, exhausted, counts);
+      }
+
       if (cursorDateStart > currentTargetDate) {
         await this.store.updateTradeBackfillCompletionMarker({
           uid: profile.uid,

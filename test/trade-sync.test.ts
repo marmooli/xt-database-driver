@@ -249,6 +249,67 @@ describe("trade history backfill sync", () => {
     }
   });
 
+  it("does not rescan a completed user when a stale same-user message is delivered", async () => {
+    const store = new FakeStore();
+    await store.upsertUser({ uid: "100", affiliateItemId: "1", role: "DIRECTOR", registeredAt: Date.UTC(2026, 5, 21) }, 1, "now");
+    await store.updateTradeBackfillCompletionMarker({
+      uid: "100",
+      completedThroughDate: "2026-06-24",
+      now: "2026-06-24T23:00:00.000Z"
+    });
+    const queue = new FakeTradeBackfillQueue();
+    const fetchUserDailyTrade = vi.fn();
+    const syncer = new TradeBackfillSyncer({ fetchUserDailyTrade }, store, queue, "test-source");
+
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-06-25T02:00:00.000Z"));
+      const result = await syncer.syncChunk({ uid: "100", nextDate: "2026-06-21" }, 100);
+
+      expect(result).toMatchObject({ uid: "100", processed: 0, inserted: 0, updated: 0, skipped: 0 });
+      expect(fetchUserDailyTrade).not.toHaveBeenCalled();
+      expect(queue.messages).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("advances from an active completed same-user cursor without rescanning dates", async () => {
+    const store = new FakeStore();
+    await store.upsertUser({ uid: "100", affiliateItemId: "1", role: "DIRECTOR", registeredAt: Date.UTC(2026, 5, 21) }, 1, "now");
+    await store.upsertUser({ uid: "200", affiliateItemId: "2", role: "DIRECTOR", registeredAt: Date.UTC(2026, 5, 21) }, 1, "now");
+    await store.updateTradeBackfillCompletionMarker({
+      uid: "100",
+      completedThroughDate: "2026-06-24",
+      now: "2026-06-24T23:00:00.000Z"
+    });
+    await store.upsertSyncState({
+      operation: TRADE_BACKFILL_SYNC_OPERATION,
+      nextCursor: "0:100:2026-06-21",
+      status: "running",
+      lastRunId: 1,
+      lastError: null,
+      lastStartedAt: "2026-06-25T02:00:00.000Z",
+      lastFinishedAt: null
+    });
+    const queue = new FakeTradeBackfillQueue();
+    const fetchUserDailyTrade = vi.fn();
+    const syncer = new TradeBackfillSyncer({ fetchUserDailyTrade }, store, queue, "test-source");
+
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-06-25T02:00:00.000Z"));
+      const result = await syncer.syncChunk({ uid: "100", nextDate: "2026-06-21" }, 100);
+
+      expect(result).toMatchObject({ uid: "100", processed: 0, skipped: 0, exhausted: false });
+      expect(fetchUserDailyTrade).not.toHaveBeenCalled();
+      expect(queue.messages).toEqual([{ afterTradeAmount: 0, afterUid: "100" }]);
+      expect((await store.getSyncState(TRADE_BACKFILL_SYNC_OPERATION))?.next_cursor).toBe("0:100");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("backfills missing daily trade snapshots and continues the same user", async () => {
     const store = new FakeStore();
     await store.upsertUser({ uid: "100", affiliateItemId: "1", role: "DIRECTOR", registeredAt: Date.UTC(2026, 5, 21) }, 1, "now");
