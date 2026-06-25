@@ -116,6 +116,7 @@ export interface TradeBackfillProfile {
   uid: string;
   registered_at: number | null;
   first_seen_at: string;
+  completed_through_date: string | null;
   cumulative_trade_amount: number;
   cumulative_trade_amount_text: string;
 }

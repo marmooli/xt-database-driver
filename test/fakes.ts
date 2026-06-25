@@ -17,7 +17,7 @@ export class FakeSource implements XtAffiliateUserSource {
 }
 
 export class FakeStore implements XtDataStore {
-  users = new Map<string, NormalizedXtUser & { firstSeenAt: string; lastSeenAt: string; runId: number }>();
+  users = new Map<string, NormalizedXtUser & { firstSeenAt: string; lastSeenAt: string; runId: number; tradeBackfillCompletedThroughDate: string | null }>();
   userInfos = new Map<string, XtUserInfo & { lastUserInfoSyncAt: string; runId: number }>();
   balances = new Map<string, XtUserBalance & { lastBalanceSyncAt: string; runId: number }>();
   snapshots = new Map<string, XtUserBalanceSnapshot & { runId: number }>();
@@ -75,7 +75,7 @@ export class FakeStore implements XtDataStore {
   async upsertUser(user: NormalizedXtUser, runId: number, now: string): Promise<UpsertResult> {
     const existing = this.users.get(user.uid);
     if (!existing) {
-      this.users.set(user.uid, { ...user, firstSeenAt: now, lastSeenAt: now, runId });
+      this.users.set(user.uid, { ...user, firstSeenAt: now, lastSeenAt: now, runId, tradeBackfillCompletedThroughDate: null });
       return { inserted: true, updated: false };
     }
 
@@ -134,6 +134,7 @@ export class FakeStore implements XtDataStore {
           uid,
           affiliate_item_id: user.affiliateItemId,
           role: user.role,
+          trade_backfill_completed_through_date: user.tradeBackfillCompletedThroughDate,
           register_invite_code: this.userInfos.get(uid)?.registerInviteCode ?? null,
           last_user_info_sync_at: this.userInfos.get(uid)?.lastUserInfoSyncAt ?? null,
           registered_at: user.registeredAt,
@@ -192,6 +193,7 @@ export class FakeStore implements XtDataStore {
       uid,
       registered_at: user.registeredAt,
       first_seen_at: user.firstSeenAt,
+      completed_through_date: user.tradeBackfillCompletedThroughDate,
       cumulative_trade_amount: this.tradeTotal(uid),
       cumulative_trade_amount_text: String(this.tradeTotal(uid))
     };
@@ -244,13 +246,14 @@ export class FakeStore implements XtDataStore {
     } : null;
   }
 
-  async getNextTradeBackfillProfile(input: { afterTradeAmount: number | null; afterUid: string | null }): Promise<TradeBackfillProfile | null> {
+  async getNextTradeBackfillProfile(input: { afterTradeAmount: number | null; afterUid: string | null; targetDate: string }): Promise<TradeBackfillProfile | null> {
     const candidates = Array.from(this.users.keys())
       .map((uid) => ({
         uid,
         user: this.users.get(uid)!,
         total: this.tradeTotal(uid)
       }))
+      .filter((candidate) => candidate.user.tradeBackfillCompletedThroughDate === null || candidate.user.tradeBackfillCompletedThroughDate < input.targetDate)
       .sort((a, b) => b.total - a.total || Number(a.uid) - Number(b.uid));
 
     if (input.afterTradeAmount === null && input.afterUid === null) {
@@ -259,6 +262,7 @@ export class FakeStore implements XtDataStore {
         uid: candidate.uid,
         registered_at: candidate.user.registeredAt,
         first_seen_at: candidate.user.firstSeenAt,
+        completed_through_date: candidate.user.tradeBackfillCompletedThroughDate,
         cumulative_trade_amount: candidate.total,
         cumulative_trade_amount_text: String(candidate.total)
       } : null;
@@ -273,9 +277,21 @@ export class FakeStore implements XtDataStore {
       uid: candidate.uid,
       registered_at: candidate.user.registeredAt,
       first_seen_at: candidate.user.firstSeenAt,
+      completed_through_date: candidate.user.tradeBackfillCompletedThroughDate,
       cumulative_trade_amount: candidate.total,
       cumulative_trade_amount_text: String(candidate.total)
     } : null;
+  }
+
+  async updateTradeBackfillCompletionMarker(input: { uid: string; completedThroughDate: string; now: string }): Promise<void> {
+    const existing = this.users.get(input.uid);
+    if (!existing) return;
+
+    this.users.set(input.uid, {
+      ...existing,
+      tradeBackfillCompletedThroughDate: input.completedThroughDate,
+      lastSeenAt: input.now
+    });
   }
 
   async listUserDailyTradeHistory(input: { uid: string; startDate: string; endDate: string }): Promise<UserDailyTradeHistoryRow[]> {

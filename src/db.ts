@@ -20,7 +20,8 @@ export interface XtDataStore {
   getUserTradeProfile(uid: string): Promise<UserTradeProfile | null>;
   getNextUserTradeProfile(afterUid: string | null): Promise<UserTradeProfile | null>;
   getTradeBackfillProfile(uid: string): Promise<TradeBackfillProfile | null>;
-  getNextTradeBackfillProfile(input: { afterTradeAmount: number | null; afterUid: string | null }): Promise<TradeBackfillProfile | null>;
+  getNextTradeBackfillProfile(input: { afterTradeAmount: number | null; afterUid: string | null; targetDate: string }): Promise<TradeBackfillProfile | null>;
+  updateTradeBackfillCompletionMarker(input: { uid: string; completedThroughDate: string; now: string }): Promise<void>;
   getFeeBackfillProfile(uid: string): Promise<FeeBackfillProfile | null>;
   getNextFeeBackfillProfile(input: { afterFeeAmount: number | null; afterUid: string | null }): Promise<FeeBackfillProfile | null>;
   listUserDailyTradeHistory(input: { uid: string; startDate: string; endDate: string }): Promise<UserDailyTradeHistoryRow[]>;
@@ -184,37 +185,39 @@ export class D1XtDataStore implements XtDataStore {
   async getTradeBackfillProfile(uid: string): Promise<TradeBackfillProfile | null> {
     return await this.db.prepare(
       `WITH user_totals AS (
-         SELECT u.uid, u.registered_at, u.first_seen_at,
+         SELECT u.uid, u.registered_at, u.first_seen_at, u.trade_backfill_completed_through_date AS completed_through_date,
                 ROUND(COALESCE(SUM(t.trade_amount), 0), 8) AS cumulative_trade_amount,
                 CAST(ROUND(COALESCE(SUM(t.trade_amount), 0), 8) AS TEXT) AS cumulative_trade_amount_text
          FROM xt_users u
          LEFT JOIN xt_user_trade_daily_snapshots t
            ON t.uid = u.uid
          WHERE u.uid = ?
-         GROUP BY u.uid, u.registered_at, u.first_seen_at
+         GROUP BY u.uid, u.registered_at, u.first_seen_at, u.trade_backfill_completed_through_date
        )
-       SELECT uid, registered_at, first_seen_at, cumulative_trade_amount, cumulative_trade_amount_text
+       SELECT uid, registered_at, first_seen_at, completed_through_date, cumulative_trade_amount, cumulative_trade_amount_text
        FROM user_totals`
     ).bind(uid).first<TradeBackfillProfile>();
   }
 
-  async getNextTradeBackfillProfile(input: { afterTradeAmount: number | null; afterUid: string | null }): Promise<TradeBackfillProfile | null> {
+  async getNextTradeBackfillProfile(input: { afterTradeAmount: number | null; afterUid: string | null; targetDate: string }): Promise<TradeBackfillProfile | null> {
     if (input.afterTradeAmount === null && input.afterUid === null) {
       return await this.db.prepare(
         `WITH user_totals AS (
-           SELECT u.uid, u.registered_at, u.first_seen_at,
+           SELECT u.uid, u.registered_at, u.first_seen_at, u.trade_backfill_completed_through_date AS completed_through_date,
                   ROUND(COALESCE(SUM(t.trade_amount), 0), 8) AS cumulative_trade_amount,
                   CAST(ROUND(COALESCE(SUM(t.trade_amount), 0), 8) AS TEXT) AS cumulative_trade_amount_text
            FROM xt_users u
            LEFT JOIN xt_user_trade_daily_snapshots t
              ON t.uid = u.uid
-           GROUP BY u.uid, u.registered_at, u.first_seen_at
+           WHERE u.trade_backfill_completed_through_date IS NULL
+              OR u.trade_backfill_completed_through_date < ?
+           GROUP BY u.uid, u.registered_at, u.first_seen_at, u.trade_backfill_completed_through_date
          )
-         SELECT uid, registered_at, first_seen_at, cumulative_trade_amount, cumulative_trade_amount_text
+         SELECT uid, registered_at, first_seen_at, completed_through_date, cumulative_trade_amount, cumulative_trade_amount_text
          FROM user_totals
          ORDER BY cumulative_trade_amount DESC, CAST(uid AS INTEGER) ASC
          LIMIT 1`
-      ).first<TradeBackfillProfile>();
+      ).bind(input.targetDate).first<TradeBackfillProfile>();
     }
 
     if (input.afterTradeAmount === null || input.afterUid === null) {
@@ -223,21 +226,31 @@ export class D1XtDataStore implements XtDataStore {
 
     return await this.db.prepare(
       `WITH user_totals AS (
-         SELECT u.uid, u.registered_at, u.first_seen_at,
+         SELECT u.uid, u.registered_at, u.first_seen_at, u.trade_backfill_completed_through_date AS completed_through_date,
                 ROUND(COALESCE(SUM(t.trade_amount), 0), 8) AS cumulative_trade_amount,
                 CAST(ROUND(COALESCE(SUM(t.trade_amount), 0), 8) AS TEXT) AS cumulative_trade_amount_text
          FROM xt_users u
          LEFT JOIN xt_user_trade_daily_snapshots t
            ON t.uid = u.uid
-         GROUP BY u.uid, u.registered_at, u.first_seen_at
+         WHERE u.trade_backfill_completed_through_date IS NULL
+            OR u.trade_backfill_completed_through_date < ?
+         GROUP BY u.uid, u.registered_at, u.first_seen_at, u.trade_backfill_completed_through_date
        )
-       SELECT uid, registered_at, first_seen_at, cumulative_trade_amount, cumulative_trade_amount_text
+       SELECT uid, registered_at, first_seen_at, completed_through_date, cumulative_trade_amount, cumulative_trade_amount_text
        FROM user_totals
        WHERE cumulative_trade_amount < ?
           OR (cumulative_trade_amount = ? AND CAST(uid AS INTEGER) > CAST(? AS INTEGER))
        ORDER BY cumulative_trade_amount DESC, CAST(uid AS INTEGER) ASC
        LIMIT 1`
-    ).bind(input.afterTradeAmount, input.afterTradeAmount, input.afterUid).first<TradeBackfillProfile>();
+    ).bind(input.targetDate, input.afterTradeAmount, input.afterTradeAmount, input.afterUid).first<TradeBackfillProfile>();
+  }
+
+  async updateTradeBackfillCompletionMarker(input: { uid: string; completedThroughDate: string; now: string }): Promise<void> {
+    await this.db.prepare(
+      `UPDATE xt_users
+       SET trade_backfill_completed_through_date = ?, updated_at = ?
+       WHERE uid = ?`
+    ).bind(input.completedThroughDate, input.now, input.uid).run();
   }
 
   async getFeeBackfillProfile(uid: string): Promise<FeeBackfillProfile | null> {

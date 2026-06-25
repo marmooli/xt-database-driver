@@ -194,13 +194,16 @@ export class TradeBackfillSyncer {
     const boundedDayLimit = clampHeavyBackfillDayLimit(dayLimit);
     const boundedFetchConcurrency = clampHeavyBackfillFetchConcurrency(fetchConcurrency);
     const boundedContinueDelaySeconds = Math.max(0, Math.trunc(continueDelaySeconds));
+    const now = new Date();
+    const currentTargetDate = previousGermanyDate(now);
     const profile = message.uid
       ? await this.store.getTradeBackfillProfile(message.uid)
       : await this.store.getNextTradeBackfillProfile({
         afterTradeAmount: message.afterTradeAmount ?? null,
-        afterUid: message.afterUid ?? null
+        afterUid: message.afterUid ?? null,
+        targetDate: currentTargetDate
       });
-    const cursorDateStart = profile ? message.nextDate ?? getTradeBackfillStartDate(profile) : null;
+    const cursorDateStart = profile ? message.nextDate ?? getTradeBackfillCursorStartDate(profile) : null;
     const cursorStart = profile
       ? message.uid
         ? formatTradeBackfillCursor(profile, cursorDateStart)
@@ -219,24 +222,28 @@ export class TradeBackfillSyncer {
         return this.emptyResult(runId, null, null, true, counts);
       }
 
-      const endDate = previousGermanyDate(new Date());
-      if (cursorDateStart > endDate) {
+      if (cursorDateStart > currentTargetDate) {
+        await this.store.updateTradeBackfillCompletionMarker({
+          uid: profile.uid,
+          completedThroughDate: currentTargetDate,
+          now: now.toISOString()
+        });
         await this.store.finishSyncRun(runId, {
           status: "success",
           cursorEnd: formatTradeBackfillCursor(profile, cursorDateStart),
           ...counts
         });
-        await this.enqueueNextUserOrFinish(profile, runId, counts, boundedContinueDelaySeconds);
+        await this.enqueueNextUserOrFinish(profile, runId, counts, boundedContinueDelaySeconds, currentTargetDate);
         return this.emptyResult(runId, profile.uid, cursorDateStart, false, counts);
       }
 
-      const cursorDateEnd = minDate(addDaysToDateString(cursorDateStart, boundedDayLimit - 1), endDate);
+      const cursorDateEnd = minDate(addDaysToDateString(cursorDateStart, boundedDayLimit - 1), currentTargetDate);
       const existingDates = new Set(await this.store.listUserTradeSnapshotDates({
         uid: profile.uid,
         startDate: cursorDateStart,
         endDate: cursorDateEnd
       }));
-      const now = new Date().toISOString();
+      const nowText = now.toISOString();
       const targetDates: string[] = [];
 
       for (let currentDate = cursorDateStart; currentDate <= cursorDateEnd; currentDate = addDaysToDateString(currentDate, 1)) {
@@ -267,15 +274,23 @@ export class TradeBackfillSyncer {
           tradeDate: currentDate,
           sourceStartMs: range.sourceStartMs,
           sourceEndMs: range.sourceEndMs,
-          capturedAt: now
+          capturedAt: nowText
         };
       });
 
       const snapshots = fetchedSnapshots.filter((snapshot): snapshot is XtUserDailyTradeSnapshot => snapshot !== null);
-      const results = await this.store.upsertUserDailyTradeSnapshots(snapshots, runId, now);
+      const results = await this.store.upsertUserDailyTradeSnapshots(snapshots, runId, nowText);
       for (const result of results) {
         if (result.inserted) counts.inserted += 1;
         if (result.updated) counts.updated += 1;
+      }
+
+      if (cursorDateEnd === currentTargetDate) {
+        await this.store.updateTradeBackfillCompletionMarker({
+          uid: profile.uid,
+          completedThroughDate: cursorDateEnd,
+          now: nowText
+        });
       }
 
       await this.store.finishSyncRun(runId, {
@@ -285,7 +300,7 @@ export class TradeBackfillSyncer {
       });
 
       const nextDate = addDaysToDateString(cursorDateEnd, 1);
-      if (nextDate <= endDate) {
+      if (nextDate <= currentTargetDate) {
         await this.queue.send({ uid: profile.uid, nextDate }, { delaySeconds: boundedContinueDelaySeconds });
         await this.store.upsertSyncState({
           operation: TRADE_BACKFILL_SYNC_OPERATION,
@@ -306,7 +321,7 @@ export class TradeBackfillSyncer {
         };
       }
 
-      const exhausted = await this.enqueueNextUserOrFinish(profile, runId, counts, boundedContinueDelaySeconds);
+      const exhausted = await this.enqueueNextUserOrFinish(profile, runId, counts, boundedContinueDelaySeconds, currentTargetDate);
       return {
         operation: TRADE_BACKFILL_SYNC_OPERATION,
         runId,
@@ -337,10 +352,11 @@ export class TradeBackfillSyncer {
     }
   }
 
-  private async enqueueNextUserOrFinish(profile: TradeBackfillProfile, runId: number, counts: { processed: number; inserted: number; updated: number; skipped: number }, continueDelaySeconds: number): Promise<boolean> {
+  private async enqueueNextUserOrFinish(profile: TradeBackfillProfile, runId: number, counts: { processed: number; inserted: number; updated: number; skipped: number }, continueDelaySeconds: number, targetDate: string): Promise<boolean> {
     const nextProfile = await this.store.getNextTradeBackfillProfile({
       afterTradeAmount: profile.cumulative_trade_amount,
-      afterUid: profile.uid
+      afterUid: profile.uid,
+      targetDate
     });
     if (!nextProfile) {
       await this.store.upsertSyncState({
@@ -415,6 +431,16 @@ function getTradeBackfillStartDate(profile: UserTradeProfile): string {
   return profile.registered_at
     ? toGermanyDate(new Date(profile.registered_at))
     : profile.first_seen_at.slice(0, 10);
+}
+
+function getTradeBackfillCursorStartDate(profile: TradeBackfillProfile): string {
+  const startDate = getTradeBackfillStartDate(profile);
+  if (!profile.completed_through_date) {
+    return startDate;
+  }
+
+  const nextEligibleDate = addDaysToDateString(profile.completed_through_date, 1);
+  return nextEligibleDate > startDate ? nextEligibleDate : startDate;
 }
 
 function formatTradeBackfillCursor(profile: { uid: string; cumulative_trade_amount_text: string }, nextDate: string | null): string {

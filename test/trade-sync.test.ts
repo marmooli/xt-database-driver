@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { DailyTradeSyncer, TRADE_BACKFILL_SYNC_OPERATION, TRADE_DAILY_SYNC_OPERATION, TradeBackfillSyncer, germanyDateRangeToUtcMs, previousGermanyDate, startDailyTradeSync, startTradeBackfillSync, type TradeBackfillSyncQueue, type TradeSyncQueue } from "../src/trade-sync";
 import { XtSourceError } from "../src/xt-source";
 import { FakeStore } from "./fakes";
@@ -167,6 +167,86 @@ describe("trade history backfill sync", () => {
       { afterTradeAmount: 20, afterUid: "200" },
       { afterTradeAmount: 20, afterUid: "300" }
     ]);
+  });
+
+  it("skips users already complete through the current target date when selecting the next candidate", async () => {
+    const store = new FakeStore();
+    await store.upsertUser({ uid: "100", affiliateItemId: "1", role: "DIRECTOR", registeredAt: Date.UTC(2026, 5, 21) }, 1, "now");
+    await store.upsertUser({ uid: "200", affiliateItemId: "2", role: "DIRECTOR", registeredAt: Date.UTC(2026, 5, 21) }, 1, "now");
+    await store.upsertUser({ uid: "300", affiliateItemId: "3", role: "DIRECTOR", registeredAt: Date.UTC(2026, 5, 21) }, 1, "now");
+    await store.upsertUserDailyTradeSnapshot({
+      uid: "200",
+      role: "DIRECTOR",
+      trade: true,
+      tradeAmount: 10,
+      tradeAmountText: "10",
+      tradeDate: "2026-06-20",
+      sourceStartMs: 0,
+      sourceEndMs: 0,
+      capturedAt: "now"
+    }, 1, "now");
+    await store.upsertUserDailyTradeSnapshot({
+      uid: "200",
+      role: "DIRECTOR",
+      trade: true,
+      tradeAmount: 10,
+      tradeAmountText: "10",
+      tradeDate: "2026-06-21",
+      sourceStartMs: 0,
+      sourceEndMs: 0,
+      capturedAt: "now"
+    }, 1, "now");
+    await store.upsertUserDailyTradeSnapshot({
+      uid: "300",
+      role: "DIRECTOR",
+      trade: true,
+      tradeAmount: 30,
+      tradeAmountText: "30",
+      tradeDate: "2026-06-20",
+      sourceStartMs: 0,
+      sourceEndMs: 0,
+      capturedAt: "now"
+    }, 1, "now");
+    await store.updateTradeBackfillCompletionMarker({
+      uid: "300",
+      completedThroughDate: "2026-06-21",
+      now: "2026-06-21T23:00:00.000Z"
+    });
+    const queue = new FakeTradeBackfillQueue();
+    const syncer = new TradeBackfillSyncer(tradeSource(), store, queue, "test-source");
+
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-06-22T02:00:00.000Z"));
+      const result = await syncer.syncChunk({}, 100);
+
+      expect(result.uid).toBe("200");
+      expect(queue.messages).toEqual([{ afterTradeAmount: 20, afterUid: "200" }]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("writes a completion marker and resumes from the next day when the target advances", async () => {
+    const store = new FakeStore();
+    await store.upsertUser({ uid: "100", affiliateItemId: "1", role: "DIRECTOR", registeredAt: Date.UTC(2026, 5, 21) }, 1, "now");
+    const queue = new FakeTradeBackfillQueue();
+    const syncer = new TradeBackfillSyncer(tradeSource(), store, queue, "test-source");
+
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-06-25T02:00:00.000Z"));
+      const first = await syncer.syncChunk({}, 100);
+      expect(first).toMatchObject({ uid: "100", exhausted: true });
+      expect(store.users.get("100")?.tradeBackfillCompletedThroughDate).toBe("2026-06-24");
+
+      vi.setSystemTime(new Date("2026-06-26T02:00:00.000Z"));
+      const second = await syncer.syncChunk({}, 100);
+      expect(second).toMatchObject({ uid: "100", processed: 1, skipped: 0 });
+      expect(store.users.get("100")?.tradeBackfillCompletedThroughDate).toBe("2026-06-25");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("backfills missing daily trade snapshots and continues the same user", async () => {
